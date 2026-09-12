@@ -38,6 +38,11 @@ export default class Message<T extends Types.Channels.AnyTextableChannel | Types
     flags: number;
     /** The ID of the guild this message is in. */
     guildID: T extends Types.Channels.AnyTextableGuildChannel ? string : string | null;
+    /**
+     * The interaction info, if this message was the result of an interaction.
+     * @deprecated Use {@link Message#interactionMetadata | Message#interactionMetadata } instead.
+     */
+    interaction?: Types.Channels.MessageInteraction;
     /** The interaction info, if this message was the result of an interaction. */
     interactionMetadata?: Types.Channels.AnyMessageInteractionMetadata;
     /** The member that created this message, if this message is in a guild. */
@@ -123,6 +128,22 @@ export default class Message<T extends Types.Channels.AnyTextableChannel | Types
         }
         if (data.flags !== undefined) {
             this.flags = data.flags;
+        }
+        if (data.interaction !== undefined) {
+            let member: Types.Guilds.RawMember | undefined;
+            if (data.interaction.member) {
+                member = {
+                    ...data.interaction.member,
+                    user: data.interaction.user
+                };
+            }
+            this.interaction = {
+                id: data.interaction.id,
+                member: member ? this.client.util.updateMember(data.guild_id!, member.user!.id, member) : undefined,
+                name: data.interaction.name,
+                type: data.interaction.type,
+                user: this.client.users.update(data.interaction.user)
+            };
         }
         if (data.interaction_metadata !== undefined) {
             this.interactionMetadata = {
@@ -330,6 +351,13 @@ export default class Message<T extends Types.Channels.AnyTextableChannel | Types
             embeds: this.embeds,
             flags: this.flags,
             guildID: this.guildID ?? undefined,
+            interaction: this.interaction === undefined ? undefined : {
+                id: this.interaction.id,
+                member: this.interaction.member?.toJSON(),
+                name: this.interaction.name,
+                type: this.interaction.type,
+                user: this.interaction.user.toJSON()
+            },
             interactionMetadata: im === undefined ? undefined : {
                 authorizingIntegrationOwners: im.authorizingIntegrationOwners,
                 id: im.id,
