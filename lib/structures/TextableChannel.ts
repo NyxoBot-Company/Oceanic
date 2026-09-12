@@ -3,6 +3,7 @@ import GuildChannel from "./GuildChannel";
 import PermissionOverwrite from "./PermissionOverwrite";
 import Message from "./Message";
 import type { InviteWithMetadata } from "./Invite";
+import type CategoryChannel from "./CategoryChannel";
 import type Member from "./Member";
 import Permission from "./Permission";
 import type User from "./User";
@@ -13,18 +14,18 @@ import type Client from "../Client";
 import TypedCollection from "../util/TypedCollection";
 import { UncachedError } from "../util/Errors";
 
-/** Represents a guild textable channel. Not used for threads. */
+/** Represents a guild textable channel. */
 export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildChannel = Types.Channels.AnyTextableGuildChannel> extends GuildChannel {
-    /** The last message sent in this channel. This will only be present if a message has been sent within the current session. */
-    lastMessage?: Message<CH> | null;
     /** The ID of last message sent in this channel. */
     lastMessageID: string | null;
-    /** The timestamp of the last pinned message in this channel. */
-    lastPinTimestamp: string | null;
-    /** The cached messages in this channel. */
-    messages: TypedCollection<Types.Channels.RawMessage, Message<CH>>;
-    /** If this channel is age gated. */
-    nsfw: boolean;
+    private _messages?: TypedCollection<Types.Channels.RawMessage, Message<CH>>;
+    /** The cached messages in this channel. Lazily allocated on first access. */
+    get messages(): TypedCollection<Types.Channels.RawMessage, Message<CH>> {
+        if (!this._messages) {
+            this._messages = new TypedCollection(Message<CH>, this.client, this.client.util._getLimit("messages", this.id));
+        }
+        return this._messages;
+    }
     /** The permission overwrites of this channel. */
     permissionOverwrites: TypedCollection<Types.Channels.RawOverwrite, PermissionOverwrite>;
     /** The position of this channel on the sidebar. */
@@ -37,9 +38,6 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
     constructor(data: Types.Channels.RawTextChannel | Types.Channels.RawAnnouncementChannel | Types.Channels.RawVoiceChannel | Types.Channels.RawStageChannel, client: Client) {
         super(data, client);
         this.lastMessageID = data.last_message_id;
-        this.lastPinTimestamp = data.last_pin_timestamp;
-        this.messages = new TypedCollection(Message<CH>, client, this.client.util._getLimit("messages", this.id));
-        this.nsfw = data.nsfw;
         this.permissionOverwrites = new TypedCollection(PermissionOverwrite, client);
         this.position = data.position;
         this.rateLimitPerUser = data.rate_limit_per_user;
@@ -50,14 +48,7 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
     protected override update(data: Partial<Types.Channels.RawTextChannel | Types.Channels.RawAnnouncementChannel | Types.Channels.RawVoiceChannel | Types.Channels.RawStageChannel>): void {
         super.update(data);
         if (data.last_message_id !== undefined) {
-            this.lastMessage = data.last_message_id === null ? null : this.messages.get(data.last_message_id);
             this.lastMessageID = data.last_message_id;
-        }
-        if (data.last_pin_timestamp !== undefined) {
-            this.lastPinTimestamp = data.last_pin_timestamp;
-        }
-        if (data.nsfw !== undefined) {
-            this.nsfw = data.nsfw;
         }
         if (data.position !== undefined) {
             this.position = data.position;
@@ -79,6 +70,10 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
         }
     }
 
+    override get parent(): Types.Channels.ParentChannelType<this> | null | undefined {
+        return super.parent;
+    }
+
     /**
      * Create an invite for this channel. If the guild is not a `COMMUNITY` server, invites can only be made to last 30 days.
      * @param options The options for the invite.
@@ -89,22 +84,9 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
 
     /**
      * Create a message in this channel.
-     * @param options The options for creating the message.
+     * @param options The options for the message.
      */
-    async createMessage(options: Types.Channels.CreateMessageOptions): Promise<Message<CH>>;
-    /**
-     * Create a message in this channel.
-     * @param content The content for creating the message
-     * @param options The options for creating the message.
-     */
-    async createMessage(content: string, options?: Types.Channels.CreateMessageOptions): Promise<Message<CH>>;
-    async createMessage(content: Types.Channels.CreateMessageOptions | string, options?: Types.Channels.CreateMessageOptions): Promise<Message<CH>> {
-        if (typeof content === "string") {
-            options = {
-                ...options,
-                content
-            };
-        } else options = content;
+    async createMessage(options: Types.Channels.CreateMessageOptions): Promise<Message<CH>> {
         return this.client.rest.channels.createMessage<CH>(this.id, options);
     }
 
@@ -176,21 +158,7 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
      * @param messageID The ID of the message to edit.
      * @param options The options for editing the message.
      */
-    async editMessage(messageID: string, options: Types.Channels.EditMessageOptions): Promise<Message<CH>>;
-    /**
-     * Edit a message in this channel.
-     * @param messageID The ID of the message to edit.
-     * @param content The content for editing the message.
-     * @param options The options for editing the message.
-     */
-    async editMessage(messageID: string, content: string, options?: Types.Channels.EditMessageOptions): Promise<Message<CH>>;
-    async editMessage(messageID: string, content: Types.Channels.EditMessageOptions | string, options?: Types.Channels.EditMessageOptions): Promise<Message<CH>> {
-        if (typeof content === "string") {
-            options = {
-                ...options,
-                content
-            };
-        } else options = content;
+    async editMessage(messageID: string, options: Types.Channels.EditMessageOptions): Promise<Message<CH>> {
         return this.client.rest.channels.editMessage<CH>(this.id, messageID, options);
     }
 
@@ -228,26 +196,9 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
 
     /**
      * Get the pinned messages in this channel.
-     * @deprecated Use {@link TextableChannel#getPins | getPins} instead.
      */
     async getPinnedMessages(): Promise<Array<Message<CH>>> {
         return this.client.rest.channels.getPinnedMessages<CH>(this.id);
-    }
-
-    /**
-     * Get the pins in this channel.
-     * @param options The options for getting pins.
-     */
-    async getPins(options?: Types.Channels.GetChannelPinsOptions<CH>): Promise<Array<Types.Channels.MessagePin<CH>>> {
-        return this.client.rest.channels.getPins<CH>(this.id, options);
-    }
-
-    /**
-     * Get an async iterator for getting pins in this channel.
-     * @param options The options for getting pins.
-     */
-    getPinsIterator(options?: Types.Channels.GetChannelPinsIteratorOptions<CH>): Types.Channels.MessagePinsIterator<CH> {
-        return this.client.rest.channels.getPinsIterator<CH>(this.id, options);
     }
 
     /**
@@ -330,16 +281,14 @@ export default class TextableChannel<CH extends Types.Channels.AnyTextableGuildC
     override toJSON(): Types.JSON.JSONTextableChannel {
         return {
             ...super.toJSON(),
-            lastMessageID:        this.lastMessageID,
-            lastPinTimestamp:     this.lastPinTimestamp,
-            messages:             this.messages.map(message => message.id),
-            nsfw:                 this.nsfw,
+            lastMessageID: this.lastMessageID,
+            messages: this._messages?.map(message => message.id) ?? [],
             permissionOverwrites: this.permissionOverwrites.map(overwrite => overwrite.toJSON()),
-            position:             this.position,
-            rateLimitPerUser:     this.rateLimitPerUser,
-            topic:                this.topic,
-            type:                 this.type
-        };
+            position: this.position,
+            rateLimitPerUser: this.rateLimitPerUser,
+            topic: this.topic,
+            type: this.type
+        } as unknown as Types.JSON.JSONTextableChannel;
     }
 
     /**

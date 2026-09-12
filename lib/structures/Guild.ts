@@ -5,7 +5,6 @@ import GuildChannel from "./GuildChannel";
 import Member from "./Member";
 import GuildScheduledEvent from "./GuildScheduledEvent";
 import ThreadChannel from "./ThreadChannel";
-import GuildJoinRequest from "./GuildJoinRequest";
 import type User from "./User";
 import type VoiceChannel from "./VoiceChannel";
 import type ClientApplication from "./ClientApplication";
@@ -26,6 +25,7 @@ import AuditLogEntry from "./AuditLogEntry";
 import type Entitlement from "./Entitlement";
 import type TestEntitlement from "./TestEntitlement";
 import Soundboard from "./Soundboard";
+import GuildJoinRequest from "./GuildJoinRequest";
 import type * as Types from "../types/namespaced";
 import {
     AllPermissions,
@@ -52,7 +52,7 @@ import type Shard from "../gateway/Shard";
 import { UncachedError } from "../util/Errors";
 import SimpleCollection from "../util/SimpleCollection";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore optional dependency
+// @ts-ignore
 import type { DiscordGatewayAdapterCreator, DiscordGatewayAdapterLibraryMethods, DiscordGatewayAdapterImplementerMethods, VoiceConnection } from "@discordjs/voice";
 
 /** Represents a Discord server. */
@@ -104,7 +104,7 @@ export default class Guild extends Base {
     inventorySettings: Types.Guilds.InventorySettings | null;
     /** The cached invites in this guild. This will only be populated by invites created while the client is active. */
     invites: SimpleCollection<string, Types.Invites.RawInvite, InviteWithMetadata<Types.Channels.AnyGuildInviteChannel>, "code">;
-    /** The cached join requests in this guild. This will be empty unless join requests have been fetched. */
+    /** The join requests in this guild. */
     joinRequests: TypedCollection<Types.Guilds.RawGuildJoinRequest, GuildJoinRequest>;
     /** The date at which this guild was joined. */
     joinedAt: Date | null;
@@ -141,7 +141,7 @@ export default class Guild extends Base {
     premiumSubscriptionCount?: number;
     /** The [boost level](https://discord.com/developers/docs/resources/guild#guild-object-premium-tier) of this guild. */
     premiumTier: PremiumTiers;
-    /** The guild's server tag, only present for guilds received over the gateway. */
+    /** The guild's server tag, only present for guilds recieved over the gateway. */
     profile: Types.Guilds.GuildProfile | null;
     /** The channel where notices from Discord are received. Only present in guilds with the `COMMUNITY` feature. */
     publicUpdatesChannel?: Types.Channels.AnyTextableGuildChannel | null;
@@ -221,7 +221,7 @@ export default class Guild extends Base {
         this.integrations = new TypedCollection(Integration, client, client.util._getLimit("integrations", this.id));
         this.inventorySettings = null;
         this.invites = new SimpleCollection(rawInvite => Invite.withMetadata(rawInvite, client), client.util._getLimit("invites", this.id), "update", "code");
-        this.joinRequests = new TypedCollection(GuildJoinRequest, client);
+        this.joinRequests = new TypedCollection(GuildJoinRequest, client, client.util._getLimit("joinRequests", this.id));
         this.joinedAt = null;
         this.large = (data.member_count ?? data.approximate_member_count ?? 0) >= client.shards.options.largeThreshold;
         this.latestOnboardingQuestionID = null;
@@ -260,7 +260,7 @@ export default class Guild extends Base {
         this.vanityURLCode = data.vanity_url_code;
         this.verificationLevel = data.verification_level;
         this.voiceStates = new TypedCollection(VoiceState, client, client.util._getLimit("voiceStates", this.id));
-        this.widgetChannelID = data.widget_channel_id ?? null;
+        this.widgetChannelID = data.widget_channel_id === null ? null : data.widget_channel_id!;
         for (const role of data.roles) {
             this.roles.update(role, data.id);
         }
@@ -270,9 +270,11 @@ export default class Guild extends Base {
         if (data.channels) {
             for (const channelData of data.channels) {
                 channelData.guild_id = this.id;
+                client.channelGuildMap.set(channelData.id, this.id); // @TODO this seems redundant
                 this.channels.update(channelData);
             }
         }
+
 
         if (data.threads) {
             for (const threadData of data.threads) {
@@ -280,6 +282,7 @@ export default class Guild extends Base {
                 this.threads.update(threadData);
             }
         }
+
 
         if (data.members) {
             for (const rawMember of data.members) {
@@ -297,44 +300,7 @@ export default class Guild extends Base {
             }
         }
 
-        if (data.presences) {
-            for (const presence of data.presences) {
-                const member = this.members.get(presence.user.id);
-                if (member) {
-                    delete (presence as { user?: Types.Gateway.PresenceUpdate["user"]; }).user;
-                    member.presence = {
-                        clientStatus: presence.client_status,
-                        guildID:      presence.guild_id,
-                        status:       presence.status,
-                        activities:   presence.activities?.map(activity => ({
-                            createdAt:     activity.created_at,
-                            name:          activity.name,
-                            type:          activity.type,
-                            applicationID: activity.application_id,
-                            assets:        activity.assets ? {
-                                largeImage: activity.assets.large_image,
-                                largeText:  activity.assets.large_text,
-                                smallImage: activity.assets.small_image,
-                                smallText:  activity.assets.small_text
-                            } : undefined,
-                            buttons:    activity.buttons,
-                            details:    activity.details,
-                            emoji:      activity.emoji,
-                            flags:      activity.flags,
-                            instance:   activity.instance,
-                            party:      activity.party,
-                            secrets:    activity.secrets,
-                            state:      activity.state,
-                            timestamps: activity.timestamps,
-                            url:        activity.url
-                        }))
-                    };
-                } else {
-                    client.emit("debug", `Rogue presence (user: ${presence.user.id}, guild: ${this.id})`);
-                }
 
-            }
-        }
 
         if (data.voice_states) {
             for (const voiceState of data.voice_states) {
@@ -353,10 +319,10 @@ export default class Guild extends Base {
                 }
                 if (client.shards.options.seedVoiceConnections && voiceState.user_id === client.user.id && !this.client.getVoiceConnection(this.id)) {
                     this.client.joinVoiceChannel({
-                        guildID:             this.id,
-                        channelID:           voiceState.channel_id,
-                        selfDeaf:            voiceState.self_deaf,
-                        selfMute:            voiceState.self_mute,
+                        guildID: this.id,
+                        channelID: voiceState.channel_id,
+                        selfDeaf: voiceState.self_deaf,
+                        selfMute: voiceState.self_mute,
                         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                         voiceAdapterCreator: this.voiceAdapterCreator
                     });
@@ -443,7 +409,7 @@ export default class Guild extends Base {
         }
         if (data.incident_actions !== undefined) {
             this.incidentActions = data.incident_actions === null ? null : {
-                dmsDisabledUntil:     data.incident_actions.dms_disabled_until,
+                dmsDisabledUntil: data.incident_actions.dms_disabled_until,
                 invitesDisabledUntil: data.incident_actions.invites_disabled_until
             };
         }
@@ -541,12 +507,12 @@ export default class Guild extends Base {
         }
         if (data.welcome_screen !== undefined) {
             this.welcomeScreen = {
-                description:     data.welcome_screen.description,
+                description: data.welcome_screen.description,
                 welcomeChannels: data.welcome_screen.welcome_channels.map(channel => ({
-                    channelID:   channel.channel_id,
+                    channelID: channel.channel_id,
                     description: channel.description,
-                    emojiID:     channel.emoji_id,
-                    emojiName:   channel.emoji_name
+                    emojiID: channel.emoji_id,
+                    emojiName: channel.emoji_name
                 }))
             };
         }
@@ -598,7 +564,7 @@ export default class Guild extends Base {
         }
 
         if (!this.client.shards.connected) {
-            throw new TypeError(`${this.constructor.name}#voiceAdapterCreator cannot be used without a gateway connection.`);
+            throw new TypeError(`${this.constructor.name}#shard cannot be used without a gateway connection.`);
         }
 
         if (!this._shard) {
@@ -620,24 +586,13 @@ export default class Guild extends Base {
     }
 
     /**
-     * Accept or deny a join request for this guild.
-     * @param requestID The ID of the join request.
-     * @param options The options for actioning the join request.
-     * @caching This method **does** cache its result.
-     * @caches {@link Guild#joinRequests | Guild#joinRequests}
-     */
-    async actionJoinRequest(requestID: string, options: Types.Guilds.ActionGuildJoinRequestOptions): Promise<Types.Guilds.GuildJoinRequest> {
-        return this.client.rest.guilds.actionJoinRequest(this.id, requestID, options);
-    }
-
-    /**
      * Add a member to this guild. Requires an access token with the `guilds.join` scope.
      *
      * Returns the newly added member upon success, or void if the member is already in the guild.
      * @param userID The ID of the user to add.
      * @param options The options for adding the member.
      */
-    async addMember(userID: string, options: Types.Guilds.AddMemberOptions):  Promise<void | Member> {
+    async addMember(userID: string, options: Types.Guilds.AddMemberOptions): Promise<void | Member> {
         return this.client.rest.guilds.addMember(this.id, userID, options);
     }
 
@@ -728,17 +683,6 @@ export default class Guild extends Base {
     }
 
     /**
-     * Create an exception to the recurrence rule for a scheduled event.
-     * @param eventID The ID of the scheduled event.
-     * @param options The options for creating the scheduled event exception.
-     * @caching This method **may** cache its result. The result will not be cached if the scheduled event is not cached.
-     * @caches {@link GuildScheduledEvent#exceptions | GuildScheduledEvent#exceptions}
-     */
-    async createScheduledEventException(eventID: string, options: Types.ScheduledEvents.CreateScheduledEventExceptionOptions): Promise<Types.ScheduledEvents.ScheduledEventException> {
-        return this.client.rest.guilds.createScheduledEventException(this.id, eventID, options);
-    }
-
-    /**
      * Create a soundboard sound.
      * @param options The options for creating the soundboard sound.
      */
@@ -772,7 +716,7 @@ export default class Guild extends Base {
             throw new UncachedError("Client#application is not present, you must provide an applicationID as a second argument. To not need to provide an ID, only call this after at least one shard is READY, or restMode is enabled.");
         }
         return this.client.rest.applications.createTestEntitlement(applicationID ?? this.client.application.id, {
-            ownerID:   this.id,
+            ownerID: this.id,
             ownerType: EntitlementOwnerTypes.GUILD,
             skuID
         });
@@ -824,18 +768,6 @@ export default class Guild extends Base {
     }
 
     /**
-     * Delete an exception to the recurrence rule for a scheduled event.
-     * @param eventID The ID of the scheduled event.
-     * @param exceptionID The ID of the scheduled event exception.
-     * @param reason The reason for deleting the scheduled event exception.
-     * @caching This method **may** remove the result from cache. The result will not be removed if the scheduled event is not cached.
-     * @caches {@link GuildScheduledEvent#exceptions | GuildScheduledEvent#exceptions}
-     */
-    async deleteScheduledEventException(eventID: string, exceptionID: string, reason?: string): Promise<void> {
-        return this.client.rest.guilds.deleteScheduledEventException(this.id, eventID, exceptionID, reason);
-    }
-
-    /**
      * Delete a soundboard sound.
      * @param soundID The ID of the soundboard sound.
      * @param reason The reason for deleting the soundboard sound.
@@ -882,7 +814,7 @@ export default class Guild extends Base {
      * @param reason The reason for disabling the feature.
      */
     async disableInvites(reason?: string): Promise<Guild> {
-        return this.toggleFeature("INVITES_DISABLED", false, reason);
+        return this.toggleFeature("INVITES_DISABLED", true, reason);
     }
 
     /**
@@ -1001,18 +933,6 @@ export default class Guild extends Base {
     }
 
     /**
-     * Edit an exception to the recurrence rule for a scheduled event.
-     * @param eventID The ID of the scheduled event.
-     * @param exceptionID The ID of the scheduled event exception.
-     * @param options The options for editing the scheduled event exception.
-     * @caching This method **may** cache its result. The result will not be cached if the scheduled event is not cached.
-     * @caches {@link GuildScheduledEvent#exceptions | GuildScheduledEvent#exceptions}
-     */
-    async editScheduledEventException(eventID: string, exceptionID: string, options: Types.ScheduledEvents.EditScheduledEventExceptionOptions): Promise<Types.ScheduledEvents.ScheduledEventException> {
-        return this.client.rest.guilds.editScheduledEventException(this.id, eventID, exceptionID, options);
-    }
-
-    /**
      * Edit a soundboard sound.
      * @param soundID The ID of the soundboard sound.
      * @param options The options for editing the soundboard sound.
@@ -1085,7 +1005,7 @@ export default class Guild extends Base {
      * @param reason The reason for enabling the feature.
      */
     async enableInvites(reason?: string): Promise<Guild> {
-        return this.toggleFeature("INVITES_DISABLED", true, reason);
+        return this.toggleFeature("INVITES_DISABLED", false, reason);
     }
 
     /**
@@ -1099,10 +1019,9 @@ export default class Guild extends Base {
     /**
      * Request members from this guild.
      * @param options The options for fetching the members.
-     * @deprecated Use {@link requestMembers}. This will be removed in `1.16.0`.
      */
     async fetchMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>> {
-        return this.requestMembers(options);
+        return this.shard.requestGuildMembers(this.id, options);
     }
 
     /**
@@ -1200,16 +1119,6 @@ export default class Guild extends Base {
     }
 
     /**
-     * Get this guild's join requests.
-     * @param options The options for getting join requests.
-     * @caching This method **does** cache its result.
-     * @caches {@link Guild#joinRequests | Guild#joinRequests}
-     */
-    async getJoinRequests(options: Types.Guilds.GetGuildJoinRequestsOptions): Promise<Types.Guilds.GuildJoinRequests> {
-        return this.client.rest.guilds.getJoinRequests(this.id, options);
-    }
-
-    /**
      * Get a member of this guild.
      * @param memberID The ID of the member.
      */
@@ -1223,13 +1132,6 @@ export default class Guild extends Base {
      */
     async getMembers(options?: Types.Guilds.GetMembersOptions): Promise<Array<Member>> {
         return this.client.rest.guilds.getMembers(this.id, options);
-    }
-
-    /**
-     * Get this guild's new member welcome info.
-     */
-    async getNewMemberWelcome(): Promise<Types.Guilds.NewMemberWelcome | null> {
-        return this.client.rest.guilds.getNewMemberWelcome(this.id);
     }
 
     /**
@@ -1286,34 +1188,9 @@ export default class Guild extends Base {
     }
 
     /**
-     * Get users subscribed to an exception for a scheduled event.
-     * @param eventID The ID of the scheduled event.
-     * @param exceptionID The ID of the scheduled event exception.
-     * @param options The options for getting the users.
-     * @caching This method **does** cache part of its result. Members will not be cached if the guild is not cached.
-     * @caches {@link Client#users | Client#users}<br>{@link Guild#members | Guild#members}
-     */
-    async getScheduledEventExceptionUsers(eventID: string, exceptionID: string, options?: Types.ScheduledEvents.GetScheduledEventUsersOptions): Promise<Array<Types.ScheduledEvents.ScheduledEventUser>> {
-        return this.client.rest.guilds.getScheduledEventExceptionUsers(this.id, eventID, exceptionID, options);
-    }
-
-    /**
-     * Get user counts for a scheduled event and optionally specific exceptions.
-     * @param eventID The ID of the scheduled event.
-     * @param options The options for getting the user counts.
-     * @caching This method **may** cache the event user count.
-     * @caches {@link GuildScheduledEvent#userCount | GuildScheduledEvent#userCount}
-     */
-    async getScheduledEventUserCounts(eventID: string, options?: Types.ScheduledEvents.GetScheduledEventUserCountsOptions): Promise<Types.ScheduledEvents.ScheduledEventUserCounts> {
-        return this.client.rest.guilds.getScheduledEventUserCounts(this.id, eventID, options);
-    }
-
-    /**
      * Get the users subscribed to a scheduled event.
      * @param eventID The ID of the scheduled event to get the users of.
      * @param options The options for getting the users.
-     * @caching This method **does** cache part of its result. Members will not be cached if the guild is not cached.
-     * @caches {@link Client#users | Client#users}<br>{@link Guild#members | Guild#members}
      */
     async getScheduledEventUsers(eventID: string, options?: Types.ScheduledEvents.GetScheduledEventUsersOptions): Promise<Array<Types.ScheduledEvents.ScheduledEventUser>> {
         return this.client.rest.guilds.getScheduledEventUsers(this.id, eventID, options);
@@ -1367,7 +1244,7 @@ export default class Guild extends Base {
     /**
      * Get the vanity url of this guild.
      */
-    async getVanityURL(): Promise<Types.Guilds.GetVanityURLResponse>{
+    async getVanityURL(): Promise<Types.Guilds.GetVanityURLResponse> {
         return this.client.rest.guilds.getVanityURL(this.id);
     }
 
@@ -1448,7 +1325,7 @@ export default class Guild extends Base {
             ...options,
             // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
             voiceAdapterCreator: this.voiceAdapterCreator,
-            guildID:             this.id
+            guildID: this.id
         });
     }
 
@@ -1488,7 +1365,7 @@ export default class Guild extends Base {
         if (member.id === this.ownerID) {
             return new Permission(AllPermissions);
         } else {
-            let permissions = this.roles.get(this.id)!.permissions.allow;
+            let permissions = this.roles.get(this.id)!.permissionsAllow;
             if (permissions & Permissions.ADMINISTRATOR) {
                 return new Permission(AllPermissions);
             }
@@ -1497,11 +1374,11 @@ export default class Guild extends Base {
                 if (!role) {
                     continue;
                 }
-                if (role.permissions.allow & Permissions.ADMINISTRATOR) {
+                if (role.permissionsAllow & Permissions.ADMINISTRATOR) {
                     permissions = AllPermissions;
                     break;
                 } else {
-                    permissions |= role.permissions.allow;
+                    permissions |= role.permissionsAllow;
                 }
             }
             return new Permission(permissions);
@@ -1537,44 +1414,11 @@ export default class Guild extends Base {
     }
 
     /**
-     * Request extended channel info for this guild.
-     * @param options The options.
-     */
-    async requestChannelInfo(options: Types.Gateway.RequestChannelInfoOptions): Promise<Array<Types.Gateway.ChannelInfoWithChannel>> {
-        return this.shard.requestChannelInfo(this.id, options);
-    }
-
-    /**
-     * Request members from this guild.
-     * @param options The options for fetching the members.
-     */
-    async requestMembers(options?: Types.Gateway.RequestGuildMembersOptions): Promise<Array<Member>> {
-        return this.shard.requestGuildMembers(this.id, options);
-    }
-
-    /**
-     * Request soundboard sounds for this guild.
-     * @param options The options.
-     */
-    async requestSoundboardSounds(options?: Types.Gateway.RequestSoundboardSoundsOptions): Promise<Array<Soundboard>> {
-        return this.shard.requestSoundboardSounds(this.id, options);
-    }
-
-    /**
      * Search the username & nicknames of members in this guild. See {@link Guild#memberSearch | memberSearch} for a more detailed search.
      * @param options The options for the search.
      */
     async searchMembers(options: Types.Guilds.SearchMembersOptions): Promise<Array<Member>> {
         return this.client.rest.guilds.searchMembers(this.id, options);
-    }
-
-    /**
-     * Search messages in this guild.
-     * @param options The options to search with.
-     * @param retryOnIndexNotAvailable If the search should be retried if Discord replies with an index unavailable response. This will retry at most one time, waiting for `retry_after` or 15-45 seconds.
-     */
-    async searchMessages<T extends Types.Channels.AnyTextableGuildChannel | Types.Shared.Uncached = Types.Channels.AnyTextableGuildChannel | Types.Shared.Uncached>(options?: Types.Guilds.SearchMessagesOptions, retryOnIndexNotAvailable = true): Promise<Types.Guilds.MessageSearchResults<T>> {
-        return this.client.rest.guilds.searchMessages<T>(this.id, options, retryOnIndexNotAvailable);
     }
 
     /**
@@ -1597,57 +1441,57 @@ export default class Guild extends Base {
     override toJSON(): Types.JSON.JSONGuild {
         return {
             ...super.toJSON(),
-            afkChannelID:                this.afkChannelID,
-            afkTimeout:                  this.afkTimeout,
-            application:                 this.applicationID ?? undefined,
-            approximateMemberCount:      this.approximateMemberCount,
-            approximatePresenceCount:    this.approximatePresenceCount,
-            autoModerationRules:         this.autoModerationRules.map(rule => rule.toJSON()),
-            banner:                      this.banner,
-            channels:                    this.channels.map(channel => channel.id),
+            afkChannelID: this.afkChannelID,
+            afkTimeout: this.afkTimeout,
+            application: this.applicationID ?? undefined,
+            approximateMemberCount: this.approximateMemberCount,
+            approximatePresenceCount: this.approximatePresenceCount,
+            autoModerationRules: this.autoModerationRules.map(rule => rule.toJSON()),
+            banner: this.banner,
+            channels: this.channels.map(channel => channel.id),
             defaultMessageNotifications: this.defaultMessageNotifications,
-            description:                 this.description,
-            discoverySplash:             this.discoverySplash,
-            emojis:                      this.emojis.toArray(),
-            explicitContentFilter:       this.explicitContentFilter,
-            features:                    this.features,
-            icon:                        this.icon,
-            incidentActions:             this.incidentActions,
-            joinedAt:                    this.joinedAt?.getTime() ?? null,
-            large:                       this.large,
-            maxMembers:                  this.maxMembers,
-            maxPresences:                this.maxPresences,
-            maxStageVideoChannelUsers:   this.maxStageVideoChannelUsers,
-            maxVideoChannelUsers:        this.maxVideoChannelUsers,
-            memberCount:                 this.memberCount,
-            members:                     this.members.map(member => member.id),
-            mfaLevel:                    this.mfaLevel,
-            name:                        this.name,
-            nsfwLevel:                   this.nsfwLevel,
-            ownerID:                     this.ownerID,
-            preferredLocale:             this.preferredLocale,
-            premiumProgressBarEnabled:   this.premiumProgressBarEnabled,
-            premiumSubscriptionCount:    this.premiumSubscriptionCount,
-            premiumTier:                 this.premiumTier,
-            profile:                     this.profile,
-            publicUpdatesChannelID:      this.publicUpdatesChannelID,
-            region:                      this.region,
-            roles:                       this.roles.map(role => role.toJSON()),
-            rulesChannelID:              this.rulesChannelID,
-            scheduledEvents:             this.scheduledEvents.map(event => event.toJSON()),
-            splash:                      this.splash,
-            stageInstances:              this.stageInstances.map(instance => instance.toJSON()),
-            stickers:                    this.stickers.toArray(),
-            systemChannelID:             this.systemChannelID,
-            systemChannelFlags:          this.systemChannelFlags,
-            threads:                     this.threads.map(thread => thread.id),
-            unavailable:                 this.unavailable,
-            vanityURLCode:               this.vanityURLCode,
-            verificationLevel:           this.verificationLevel,
-            voiceStates:                 this.voiceStates.map(state => state.toJSON()),
-            welcomeScreen:               this.welcomeScreen,
-            widgetChannelID:             this.widgetChannelID,
-            widgetEnabled:               this.widgetEnabled
+            description: this.description,
+            discoverySplash: this.discoverySplash,
+            emojis: this.emojis.toArray(),
+            explicitContentFilter: this.explicitContentFilter,
+            features: this.features,
+            icon: this.icon,
+            incidentActions: this.incidentActions,
+            joinedAt: this.joinedAt?.getTime() ?? null,
+            large: this.large,
+            maxMembers: this.maxMembers,
+            maxPresences: this.maxPresences,
+            maxStageVideoChannelUsers: this.maxStageVideoChannelUsers,
+            maxVideoChannelUsers: this.maxVideoChannelUsers,
+            memberCount: this.memberCount,
+            members: this.members.map(member => member.id),
+            mfaLevel: this.mfaLevel,
+            name: this.name,
+            nsfwLevel: this.nsfwLevel,
+            ownerID: this.ownerID,
+            preferredLocale: this.preferredLocale,
+            premiumProgressBarEnabled: this.premiumProgressBarEnabled,
+            premiumSubscriptionCount: this.premiumSubscriptionCount,
+            premiumTier: this.premiumTier,
+            profile: this.profile,
+            publicUpdatesChannelID: this.publicUpdatesChannelID,
+            region: this.region,
+            roles: this.roles.map(role => role.toJSON()),
+            rulesChannelID: this.rulesChannelID,
+            scheduledEvents: this.scheduledEvents.map(event => event.toJSON()),
+            splash: this.splash,
+            stageInstances: this.stageInstances.map(instance => instance.toJSON()),
+            stickers: this.stickers.toArray(),
+            systemChannelID: this.systemChannelID,
+            systemChannelFlags: this.systemChannelFlags,
+            threads: this.threads.map(thread => thread.id),
+            unavailable: this.unavailable,
+            vanityURLCode: this.vanityURLCode,
+            verificationLevel: this.verificationLevel,
+            voiceStates: this.voiceStates.map(state => state.toJSON()),
+            welcomeScreen: this.welcomeScreen,
+            widgetChannelID: this.widgetChannelID,
+            widgetEnabled: this.widgetEnabled
         };
     }
 }

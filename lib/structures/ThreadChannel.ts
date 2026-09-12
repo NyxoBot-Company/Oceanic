@@ -11,9 +11,9 @@ import TypedCollection from "../util/TypedCollection";
 import { UncachedError } from "../util/Errors";
 
 /** Represents a guild thread channel. */
-export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = Types.Channels.AnyThreadChannel> extends GuildChannel {
-    /** The last message sent in this channel. This will only be present if a message has been sent within the current session. */
-    lastMessage?: Message<CH> | null;
+export default class ThreadChannel<T extends Types.Channels.AnyThreadChannel = Types.Channels.AnyThreadChannel> extends GuildChannel {
+    /** The [flags](https://discord.com/developers/docs/resources/channel#channel-object-channel-flags) for this thread channel. */
+    override flags: number;
     /** The ID of last message sent in this channel. */
     lastMessageID: string | null;
     /** The approximate number of members in this thread. Stops counting after 50. */
@@ -22,8 +22,14 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
     members: Array<Types.Channels.ThreadMember>;
     /** The number of messages (not including the initial message or deleted messages) in the thread. Stops counting after 50. */
     messageCount: number;
-    /** The cached messages in this channel. */
-    messages: TypedCollection<Types.Channels.RawMessage, Message<CH>>;
+    private _messages?: TypedCollection<Types.Channels.RawMessage, Message<T>>;
+    /** The cached messages in this channel. Lazily allocated on first access. */
+    get messages(): TypedCollection<Types.Channels.RawMessage, Message<T>> {
+        if (!this._messages) {
+            this._messages = new TypedCollection(Message<T>, this.client, this.client.util._getLimit("messages", this.id));
+        }
+        return this._messages;
+    }
     /** The owner of this thread. */
     owner?: User;
     /** The ID of the owner of this thread. */
@@ -43,16 +49,15 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
         this.memberCount = 0;
         this.members = [];
         this.messageCount = 0;
-        this.messages = new TypedCollection(Message<CH>, client, this.client.util._getLimit("messages", this.id));
         this.ownerID = data.owner_id;
         this.rateLimitPerUser = data.rate_limit_per_user;
         this.threadMetadata = {
-            archiveTimestamp:    new Date(data.thread_metadata.archive_timestamp),
-            archived:            !!data.thread_metadata.archived,
+            archiveTimestamp: new Date(data.thread_metadata.archive_timestamp),
+            archived: !!data.thread_metadata.archived,
             autoArchiveDuration: data.thread_metadata.auto_archive_duration,
-            createTimestamp:     data.thread_metadata.create_timestamp ? new Date(data.thread_metadata.create_timestamp) : null,
-            locked:              !!data.thread_metadata.locked,
-            invitable:           data.thread_metadata.invitable
+            createTimestamp: data.thread_metadata.create_timestamp ? new Date(data.thread_metadata.create_timestamp) : null,
+            locked: !!data.thread_metadata.locked,
+            invitable: data.thread_metadata.invitable
         };
         this.totalMessageSent = 0;
         if (data.type === ChannelTypes.PRIVATE_THREAD && data.thread_metadata.invitable !== undefined) {
@@ -66,7 +71,6 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
             this.flags = data.flags;
         }
         if (data.last_message_id !== undefined) {
-            this.lastMessage = data.last_message_id === null ? null : this.messages.get(data.last_message_id);
             this.lastMessageID = data.last_message_id;
         }
         // @TODO look over this to see if we can make it "safer" (accessing Client#user)
@@ -77,7 +81,7 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
             } else {
                 this.members[index] = {
                     ...this.members[index],
-                    flags:         data.member.flags,
+                    flags: data.member.flags,
                     joinTimestamp: new Date(data.member.join_timestamp)
                 };
             }
@@ -98,12 +102,12 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
         }
         if (data.thread_metadata !== undefined) {
             this.threadMetadata = {
-                archiveTimestamp:    new Date(data.thread_metadata.archive_timestamp),
-                archived:            !!data.thread_metadata.archived,
+                archiveTimestamp: new Date(data.thread_metadata.archive_timestamp),
+                archived: !!data.thread_metadata.archived,
                 autoArchiveDuration: data.thread_metadata.auto_archive_duration,
-                createTimestamp:     data.thread_metadata.create_timestamp ? new Date(data.thread_metadata.create_timestamp) : null,
-                locked:              !!data.thread_metadata.locked,
-                invitable:           data.thread_metadata.invitable
+                createTimestamp: data.thread_metadata.create_timestamp ? new Date(data.thread_metadata.create_timestamp) : null,
+                locked: !!data.thread_metadata.locked,
+                invitable: data.thread_metadata.invitable
             };
             if (data.type === ChannelTypes.PRIVATE_THREAD && data.thread_metadata.invitable !== undefined) {
                 (this.threadMetadata as Types.Channels.PrivateThreadMetadata).invitable = !!data.thread_metadata.invitable;
@@ -113,6 +117,10 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
         if (data.total_message_sent !== undefined) {
             this.totalMessageSent = data.total_message_sent;
         }
+    }
+
+    override get parent(): Types.Channels.ParentChannelType<this> | undefined {
+        return super.parent as Types.Channels.ParentChannelType<this> | undefined;
     }
 
     /**
@@ -127,21 +135,8 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
      * Create a message in this thread.
      * @param options The options for creating the message.
      */
-    async createMessage(options: Types.Channels.CreateMessageOptions): Promise<Message<CH>>;
-    /**
-     * Create a message in this thread.
-     * @param content The content for creating the message
-     * @param options The options for creating the message.
-     */
-    async createMessage(content: string, options?: Types.Channels.CreateMessageOptions): Promise<Message<CH>>;
-    async createMessage(content: Types.Channels.CreateMessageOptions | string, options?: Types.Channels.CreateMessageOptions): Promise<Message<CH>> {
-        if (typeof content === "string") {
-            options = {
-                ...options,
-                content
-            };
-        } else options = content;
-        return this.client.rest.channels.createMessage<CH>(this.id, options);
+    async createMessage(options: Types.Channels.CreateMessageOptions): Promise<Message<T>> {
+        return this.client.rest.channels.createMessage<T>(this.id, options);
     }
 
     /**
@@ -195,22 +190,8 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
      * @param messageID The ID of the message to edit.
      * @param options The options for editing the message.
      */
-    async editMessage(messageID: string, options: Types.Channels.EditMessageOptions): Promise<Message<CH>>;
-    /**
-     * Edit a message in this thread.
-     * @param messageID The ID of the message to edit.
-     * @param content The content for editing the message.
-     * @param options The options for editing the message.
-     */
-    async editMessage(messageID: string, content: string, options?: Types.Channels.EditMessageOptions): Promise<Message<CH>>;
-    async editMessage(messageID: string, content: Types.Channels.EditMessageOptions | string, options?: Types.Channels.EditMessageOptions): Promise<Message<CH>> {
-        if (typeof content === "string") {
-            options = {
-                ...options,
-                content
-            };
-        } else options = content;
-        return this.client.rest.channels.editMessage<CH>(this.id, messageID, options);
+    async editMessage(messageID: string, options: Types.Channels.EditMessageOptions): Promise<Message<T>> {
+        return this.client.rest.channels.editMessage<T>(this.id, messageID, options);
     }
 
     /**
@@ -232,40 +213,23 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
      * Get a message in this thread.
      * @param messageID The ID of the message to get.
      */
-    async getMessage(messageID: string): Promise<Message<CH>> {
-        return this.client.rest.channels.getMessage<CH>(this.id, messageID);
+    async getMessage(messageID: string): Promise<Message<T>> {
+        return this.client.rest.channels.getMessage<T>(this.id, messageID);
     }
 
     /**
      * Get messages in this thread.
      * @param options The options for getting the messages. `before`, `after`, and `around `All are mutually exclusive.
      */
-    async getMessages(options?: Types.Channels.GetChannelMessagesOptions): Promise<Array<Message<CH>>> {
-        return this.client.rest.channels.getMessages<CH>(this.id, options);
+    async getMessages(options?: Types.Channels.GetChannelMessagesOptions): Promise<Array<Message<T>>> {
+        return this.client.rest.channels.getMessages<T>(this.id, options);
     }
 
     /**
      * Get the pinned messages in this thread.
-     * @deprecated Use {@link ThreadChannel#getPins | getPins} instead.
      */
-    async getPinnedMessages(): Promise<Array<Message<CH>>> {
-        return this.client.rest.channels.getPinnedMessages<CH>(this.id);
-    }
-
-    /**
-     * Get the pins in this thread.
-     * @param options The options for getting pins.
-     */
-    async getPins(options?: Types.Channels.GetChannelPinsOptions<CH>): Promise<Array<Types.Channels.MessagePin<CH>>> {
-        return this.client.rest.channels.getPins<CH>(this.id, options);
-    }
-
-    /**
-     * Get an async iterator for getting pins in this thread.
-     * @param options The options for getting pins.
-     */
-    getPinsIterator(options?: Types.Channels.GetChannelPinsIteratorOptions<CH>): Types.Channels.MessagePinsIterator<CH> {
-        return this.client.rest.channels.getPinsIterator<CH>(this.id, options);
+    async getPinnedMessages(): Promise<Array<Message<T>>> {
+        return this.client.rest.channels.getPinnedMessages<T>(this.id);
     }
 
     /**
@@ -316,7 +280,7 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
      * Purge an amount of messages from this channel.
      * @param options The options to purge. `before`, `after`, and `around `All are mutually exclusive.
      */
-    async purge(options: Types.Channels.PurgeOptions<CH>): Promise<number> {
+    async purge(options: Types.Channels.PurgeOptions<T>): Promise<number> {
         return this.client.rest.channels.purgeMessages(this.id, options);
     }
 
@@ -338,17 +302,17 @@ export default class ThreadChannel<CH extends Types.Channels.AnyThreadChannel = 
     override toJSON(): Types.JSON.JSONThreadChannel {
         return {
             ...super.toJSON(),
-            flags:            this.flags,
-            lastMessageID:    this.lastMessageID,
-            memberCount:      this.memberCount,
-            messageCount:     this.messageCount,
-            messages:         this.messages.map(m => m.id),
-            ownerID:          this.ownerID,
+            flags: this.flags,
+            lastMessageID: this.lastMessageID,
+            memberCount: this.memberCount,
+            messageCount: this.messageCount,
+            messages: this._messages?.map(m => m.id) ?? [],
+            ownerID: this.ownerID,
             rateLimitPerUser: this.rateLimitPerUser,
-            threadMetadata:   this.threadMetadata,
+            threadMetadata: this.threadMetadata,
             totalMessageSent: this.totalMessageSent,
-            type:             this.type
-        };
+            type: this.type
+        } as unknown as Types.JSON.JSONThreadChannel;
     }
 
     /**

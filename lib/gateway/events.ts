@@ -20,15 +20,14 @@ import VoiceState from "../structures/VoiceState";
 import AuditLogEntry from "../structures/AuditLogEntry";
 import type User from "../structures/User";
 import Soundboard from "../structures/Soundboard";
-import type Base from "../structures/Base";
 import { isDeepStrictEqual } from "node:util";
 
 export async function APPLICATION_COMMAND_PERMISSIONS_UPDATE(data: DispatchEventMap["APPLICATION_COMMAND_PERMISSIONS_UPDATE"], shard: Shard): Promise<void> {
     shard.client.emit("applicationCommandPermissionsUpdate", shard.client.guilds.get(data.guild_id) ?? { id: data.guild_id }, {
-        application:   data.application_id === shard.client.application.id ? shard.client.application : undefined,
+        application: data.application_id === shard.client.application.id ? shard.client.application : undefined,
         applicationID: data.application_id,
-        id:            data.id,
-        permissions:   data.permissions
+        id: data.id,
+        permissions: data.permissions
     });
 }
 
@@ -43,20 +42,20 @@ export async function AUTO_MODERATION_ACTION_EXECUTION(data: DispatchEventMap["A
         {
             action: {
                 metadata: {
-                    channelID:       data.action.metadata.channel_id,
-                    customMessage:   data.action.metadata.custom_message,
+                    channelID: data.action.metadata.channel_id,
+                    customMessage: data.action.metadata.custom_message,
                     durationSeconds: data.action.metadata.duration_seconds
                 },
                 type: data.action.type
             },
             alertSystemMessageID: data.alert_system_message_id,
-            content:              data.content,
-            matchedContent:       data.matched_content,
-            matchedKeyword:       data.matched_keyword,
-            messageID:            data.message_id,
-            rule:                 guild?.autoModerationRules.get(data.rule_id),
-            ruleID:               data.rule_id,
-            ruleTriggerType:      data.rule_trigger_type
+            content: data.content,
+            matchedContent: data.matched_content,
+            matchedKeyword: data.matched_keyword,
+            messageID: data.message_id,
+            rule: guild?.autoModerationRules.get(data.rule_id),
+            ruleID: data.rule_id,
+            ruleTriggerType: data.rule_trigger_type
         }
     );
 }
@@ -91,39 +90,23 @@ export async function CHANNEL_DELETE(data: DispatchEventMap["CHANNEL_DELETE"], s
         const channel = shard.client.privateChannels.get(data.id);
         shard.client.privateChannels.delete(data.id);
         shard.client.emit("channelDelete", channel ?? {
-            id:            data.id,
-            flags:         data.flags,
+            id: data.id,
+            flags: data.flags,
             lastMessageID: data.last_message_id,
-            type:          data.type
+            type: data.type
         });
         return;
     }
     const guild = shard.client.guilds.get(data.guild_id);
     const channel = shard.client.util.updateChannel<Types.Channels.AnyGuildChannelWithoutThreads>(data);
     if (channel instanceof VoiceChannel || channel instanceof StageChannel) {
-        for (const [,member] of channel.voiceMembers) {
+        for (const [, member] of channel.voiceMembers) {
             channel.voiceMembers.delete(member.id);
             shard.client.emit("voiceChannelLeave", member, channel);
         }
     }
     guild?.channels.delete(data.id);
     shard.client.emit("channelDelete", channel);
-}
-
-export async function CHANNEL_INFO(data: DispatchEventMap["CHANNEL_INFO"], shard: Shard): Promise<void> {
-    const guild = shard.client.guilds.get(data.guild_id);
-    const channels = data.channels.map(channelInfo => ({ channel: guild?.channels.update(channelInfo) as Types.Channels.AnyVoiceChannel, info: channelInfo }));
-    for (const nonce in shard["_requestChannelInfoPromise"]) {
-        if (data.guild_id === shard["_requestChannelInfoPromise"][nonce].guildID) {
-            shard["_requestChannelInfoPromise"][nonce].channels.push(...channels);
-            clearTimeout(shard["_requestChannelInfoPromise"][nonce].timeout);
-            shard["_requestChannelInfoPromise"][nonce].resolve(shard["_requestChannelInfoPromise"][nonce].channels);
-            delete shard["_requestChannelInfoPromise"][nonce];
-        }
-    }
-
-    shard.client.emit("channelInfo", guild ?? { id: data.guild_id }, channels, shard);
-    shard.lastHeartbeatAck = true;
 }
 
 export async function CHANNEL_PINS_UPDATE(data: DispatchEventMap["CHANNEL_PINS_UPDATE"], shard: Shard): Promise<void> {
@@ -243,36 +226,6 @@ export async function GUILD_MEMBERS_CHUNK(data: DispatchEventMap["GUILD_MEMBERS_
     // eslint-disable-next-line @typescript-eslint/dot-notation
     guild?.["updateMemberLimit"](data.members.length);
     const members = data.members.map(member => shard.client.util.updateMember(data.guild_id, member.user!.id, member));
-    if (data.presences) for (const presence of data.presences) {
-        const member = members.find(m => m.id === presence.user.id)!;
-        member.presence = {
-            clientStatus: presence.client_status,
-            guildID:      presence.guild_id,
-            status:       presence.status,
-            activities:   presence.activities?.map(activity => ({
-                createdAt:     activity.created_at,
-                name:          activity.name,
-                type:          activity.type,
-                applicationID: activity.application_id,
-                assets:        activity.assets ? {
-                    largeImage: activity.assets.large_image,
-                    largeText:  activity.assets.large_text,
-                    smallImage: activity.assets.small_image,
-                    smallText:  activity.assets.small_text
-                } : undefined,
-                buttons:    activity.buttons,
-                details:    activity.details,
-                emoji:      activity.emoji,
-                flags:      activity.flags,
-                instance:   activity.instance,
-                party:      activity.party,
-                secrets:    activity.secrets,
-                state:      activity.state,
-                timestamps: activity.timestamps,
-                url:        activity.url
-            }))
-        };
-    }
     if (!data.nonce) {
         shard.client.emit("warn", "Received GUILD_MEMBERS_CHUNK without a nonce.");
         return;
@@ -319,7 +272,7 @@ export async function GUILD_MEMBER_REMOVE(data: DispatchEventMap["GUILD_MEMBER_R
 export async function GUILD_MEMBER_UPDATE(data: DispatchEventMap["GUILD_MEMBER_UPDATE"], shard: Shard): Promise<void> {
     const guild = shard.client.guilds.get(data.guild_id);
     const oldMember = guild?.members.get(data.user.id)?.toJSON() ?? null;
-    const member = shard.client.util.updateMember(data.guild_id, data.user.id, {  deaf: oldMember?.deaf ?? false, mute: oldMember?.mute ?? false, ...data });
+    const member = shard.client.util.updateMember(data.guild_id, data.user.id, { deaf: false, mute: false, ...data });
     shard.client.emit("guildMemberUpdate", member, oldMember);
 }
 
@@ -476,7 +429,6 @@ export async function MESSAGE_CREATE(data: DispatchEventMap["MESSAGE_CREATE"], s
     const channel = shard.client.getChannel<Types.Channels.AnyTextableChannel>(data.channel_id);
     const message = channel?.messages?.update(data) ?? new Message(data, shard.client);
     if (channel) {
-        channel.lastMessage = message as never;
         channel.lastMessageID = message.id;
     }
     shard.client.emit("messageCreate", message);
@@ -489,14 +441,13 @@ export async function MESSAGE_DELETE(data: DispatchEventMap["MESSAGE_DELETE"], s
         channel.messages?.delete(data.id);
         if (channel.lastMessageID === data.id) {
             channel.lastMessageID = null;
-            channel.lastMessage = null;
         }
     }
     shard.client.emit("messageDelete", message ?? {
-        channel:   channel ?? { id: data.channel_id },
+        channel: channel ?? { id: data.channel_id },
         channelID: data.channel_id,
-        guild:     data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
-        guildID:   data.guild_id, id:        data.id
+        guild: data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
+        guildID: data.guild_id, id: data.id
     });
 }
 
@@ -507,10 +458,10 @@ export async function MESSAGE_DELETE_BULK(data: DispatchEventMap["MESSAGE_DELETE
         const message = channel?.messages?.get(id);
         channel?.messages?.delete(id);
         return message ?? {
-            channel:   channel ?? { id: data.channel_id },
+            channel: channel ?? { id: data.channel_id },
             channelID: data.channel_id,
             guild,
-            guildID:   data.guild_id,
+            guildID: data.guild_id,
             id
         };
     }));
@@ -562,14 +513,14 @@ export async function MESSAGE_REACTION_ADD(data: DispatchEventMap["MESSAGE_REACT
         const index = message.reactions.findIndex(r => r.emoji.id === data.emoji.id && r.emoji.name === data.emoji.name);
         if (index === -1) {
             message.reactions.push({
-                burstColors:  data.burst_colors,
-                count:        1,
+                burstColors: data.burst_colors,
+                count: 1,
                 countDetails: {
-                    burst:  data.burst ? 1 : 0,
+                    burst: data.burst ? 1 : 0,
                     normal: data.burst ? 0 : 1
                 },
-                emoji:   data.emoji,
-                me:      data.user_id === shard.client.user.id,
+                emoji: data.emoji,
+                me: data.user_id === shard.client.user.id,
                 meBurst: data.user_id === shard.client.user.id && data.burst
             });
         } else {
@@ -587,18 +538,18 @@ export async function MESSAGE_REACTION_ADD(data: DispatchEventMap["MESSAGE_REACT
     }
 
     shard.client.emit("messageReactionAdd", message ?? {
-        channel:   channel ?? { id: data.channel_id },
+        channel: channel ?? { id: data.channel_id },
         channelID: data.channel_id,
         guild,
-        guildID:   data.guild_id,
-        id:        data.message_id ,
-        author:    data.message_author_id === undefined ? undefined : shard.client.users.get(data.message_author_id) ?? { id: data.message_author_id },
-        member:    data.message_author_id === undefined ? undefined : guild?.members.get(data.message_author_id) ?? { id: data.message_author_id }
+        guildID: data.guild_id,
+        id: data.message_id,
+        author: data.message_author_id === undefined ? undefined : shard.client.users.get(data.message_author_id) ?? { id: data.message_author_id },
+        member: data.message_author_id === undefined ? undefined : guild?.members.get(data.message_author_id) ?? { id: data.message_author_id }
     }, reactor, {
-        burst:       data.burst,
+        burst: data.burst,
         burstColors: data.burst_colors,
-        emoji:       data.emoji,
-        type:        data.type
+        emoji: data.emoji,
+        type: data.type
     });
 }
 
@@ -630,16 +581,16 @@ export async function MESSAGE_REACTION_REMOVE(data: DispatchEventMap["MESSAGE_RE
     }
 
     shard.client.emit("messageReactionRemove", message ?? {
-        channel:   channel ?? { id: data.channel_id },
+        channel: channel ?? { id: data.channel_id },
         channelID: data.channel_id,
-        guild:     data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
-        guildID:   data.guild_id,
-        id:        data.message_id
+        guild: data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
+        guildID: data.guild_id,
+        id: data.message_id
     }, reactor, {
-        burst:       data.burst,
+        burst: data.burst,
         burstColors: data.burst_colors,
-        emoji:       data.emoji,
-        type:        data.type
+        emoji: data.emoji,
+        type: data.type
     });
 }
 
@@ -652,11 +603,11 @@ export async function MESSAGE_REACTION_REMOVE_ALL(data: DispatchEventMap["MESSAG
     }
 
     shard.client.emit("messageReactionRemoveAll", message ?? {
-        channel:   channel ?? { id: data.channel_id },
+        channel: channel ?? { id: data.channel_id },
         channelID: data.channel_id,
-        guild:     data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
-        guildID:   data.guild_id,
-        id:        data.message_id
+        guild: data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
+        guildID: data.guild_id,
+        id: data.message_id
     });
 }
 
@@ -672,11 +623,11 @@ export async function MESSAGE_REACTION_REMOVE_EMOJI(data: DispatchEventMap["MESS
     }
 
     shard.client.emit("messageReactionRemoveEmoji", message ?? {
-        channel:   channel ?? { id: data.channel_id },
+        channel: channel ?? { id: data.channel_id },
         channelID: data.channel_id,
-        guild:     data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
-        guildID:   data.guild_id,
-        id:        data.message_id
+        guild: data.guild_id ? shard.client.guilds.get(data.guild_id) : undefined,
+        guildID: data.guild_id,
+        id: data.message_id
     }, data.emoji);
 }
 
@@ -703,46 +654,39 @@ export async function PRESENCE_UPDATE(data: DispatchEventMap["PRESENCE_UPDATE"],
 
     const guild = shard.client.guilds.get(data.guild_id);
     const member = guild?.members.get(data.user.id);
-    const oldPresence = member?.presence ?? null;
 
     const presence = {
         clientStatus: data.client_status,
-        guildID:      data.guild_id,
-        status:       data.status,
-        activities:   data.activities?.map(activity => ({
-            createdAt:     activity.created_at,
-            name:          activity.name,
-            type:          activity.type,
+        guildID: data.guild_id,
+        status: data.status,
+        activities: data.activities?.map(activity => ({
+            createdAt: activity.created_at,
+            name: activity.name,
+            type: activity.type,
             applicationID: activity.application_id,
-            assets:        activity.assets ? {
+            assets: activity.assets ? {
                 largeImage: activity.assets.large_image,
-                largeText:  activity.assets.large_text,
+                largeText: activity.assets.large_text,
                 smallImage: activity.assets.small_image,
-                smallText:  activity.assets.small_text
+                smallText: activity.assets.small_text
             } : undefined,
-            buttons:           activity.buttons,
-            details:           activity.details,
-            detailsURL:        activity.details_url,
-            emoji:             activity.emoji,
-            flags:             activity.flags,
-            instance:          activity.instance,
-            party:             activity.party,
-            secrets:           activity.secrets,
-            state:             activity.state,
-            stateURL:          activity.state_url,
-            statusDisplayType: activity.status_display_type,
-            timestamps:        activity.timestamps,
-            url:               activity.url
-        } satisfies Types.Shared.KeysExist<Types.Guilds.PresenceActivity>))
+            buttons: activity.buttons,
+            details: activity.details,
+            emoji: activity.emoji,
+            flags: activity.flags,
+            instance: activity.instance,
+            party: activity.party,
+            secrets: activity.secrets,
+            state: activity.state,
+            timestamps: activity.timestamps,
+            url: activity.url
+        }))
     };
     const userID = data.user.id;
 
     delete (data as { user?: Types.Gateway.PresenceUpdate["user"]; }).user;
-    if (member) {
-        member.presence = presence;
-    }
 
-    shard.client.emit("presenceUpdate", guild ?? { id: data.guild_id }, member ?? { id: userID }, presence, oldPresence);
+    shard.client.emit("presenceUpdate", guild ?? { id: data.guild_id }, member ?? { id: userID }, presence, null);
 }
 
 export async function READY(data: DispatchEventMap["READY"], shard: Shard): Promise<void> {
@@ -751,10 +695,6 @@ export async function READY(data: DispatchEventMap["READY"], shard: Shard): Prom
 
 export async function RESUMED(data: DispatchEventMap["RESUMED"], shard: Shard): Promise<void> {
     shard["_resume"]();
-}
-
-export async function RATE_LIMITED(data: DispatchEventMap["RATE_LIMITED"], shard: Shard): Promise<void> {
-    shard.client.emit("rateLimited", data, shard);
 }
 
 export async function SOUNDBOARD_SOUNDS(data: DispatchEventMap["SOUNDBOARD_SOUNDS"], shard: Shard): Promise<void> {
@@ -769,25 +709,8 @@ export async function SOUNDBOARD_SOUNDS(data: DispatchEventMap["SOUNDBOARD_SOUND
         }
     }
 
-    shard.client.emit("soundboardSounds", guild ?? { id: data.guild_id }, soundboardSounds, shard);
+    shard.client.emit("soundboardSounds", shard.client.guilds.get(data.guild_id) ?? { id: data.guild_id }, soundboardSounds, shard);
     shard.lastHeartbeatAck = true;
-}
-
-export async function SUBSCRIPTION_CREATE(data: DispatchEventMap["SUBSCRIPTION_CREATE"], shard: Shard): Promise<void> {
-    const subscription = shard.client.util.updateSubscription(data);
-    shard.client.emit("subscriptionCreate", subscription);
-}
-
-export async function SUBSCRIPTION_DELETE(data: DispatchEventMap["SUBSCRIPTION_DELETE"], shard: Shard): Promise<void> {
-    const subscription = shard.client.util.updateSubscription(data);
-    shard.client["_application"]?.subscriptions.delete(data.id);
-    shard.client.emit("subscriptionDelete", subscription);
-}
-
-export async function SUBSCRIPTION_UPDATE(data: DispatchEventMap["SUBSCRIPTION_UPDATE"], shard: Shard): Promise<void> {
-    const oldSubscription = shard.client["_application"]?.subscriptions.get(data.id)?.toJSON() ?? null;
-    const subscription = shard.client.util.updateSubscription(data);
-    shard.client.emit("subscriptionUpdate", subscription, oldSubscription);
 }
 
 export async function STAGE_INSTANCE_CREATE(data: DispatchEventMap["STAGE_INSTANCE_CREATE"], shard: Shard): Promise<void> {
@@ -822,12 +745,12 @@ export async function THREAD_CREATE(data: DispatchEventMap["THREAD_CREATE"], sha
 export async function THREAD_DELETE(data: DispatchEventMap["THREAD_DELETE"], shard: Shard): Promise<void> {
     const channel = shard.client.getChannel<Types.Channels.ThreadParentChannel>(data.parent_id);
     const thread = shard.client.getChannel<Types.Channels.AnyThreadChannel>(data.id) ?? {
-        id:       data.id,
-        guild:    shard.client.guilds.get(data.guild_id),
-        guildID:  data.guild_id,
-        parent:   channel || { id: data.parent_id },
+        id: data.id,
+        guild: shard.client.guilds.get(data.guild_id),
+        guildID: data.guild_id,
+        parent: channel || { id: data.parent_id },
         parentID: data.parent_id,
-        type:     data.type
+        type: data.type
     };
     if (channel && channel.type === ChannelTypes.GUILD_FORUM && channel.lastThreadID === data.id) {
         channel.lastThreadID = null;
@@ -849,10 +772,10 @@ export async function THREAD_LIST_SYNC(data: DispatchEventMap["THREAD_LIST_SYNC"
         const thread = shard.client.getChannel<Types.Channels.AnyThreadChannel>(member.id);
         if (thread) {
             const threadMember: Types.Channels.ThreadMember = {
-                id:            member.id,
-                flags:         member.flags,
+                id: member.id,
+                flags: member.flags,
                 joinTimestamp: new Date(member.join_timestamp),
-                userID:        member.user_id
+                userID: member.user_id
             };
             const index = thread.members.findIndex(m => m.userID === member.user_id);
             if (index === -1) {
@@ -868,10 +791,10 @@ export async function THREAD_MEMBER_UPDATE(data: DispatchEventMap["THREAD_MEMBER
     const thread = shard.client.getChannel<Types.Channels.AnyThreadChannel>(data.id);
     const guild = shard.client.guilds.get(data.guild_id);
     const threadMember: Types.Channels.ThreadMember = {
-        id:            data.id,
-        flags:         data.flags,
+        id: data.id,
+        flags: data.flags,
         joinTimestamp: new Date(data.join_timestamp),
-        userID:        data.user_id
+        userID: data.user_id
     };
     let oldThreadMember: Types.Channels.ThreadMember | null = null;
     if (thread) {
@@ -887,7 +810,7 @@ export async function THREAD_MEMBER_UPDATE(data: DispatchEventMap["THREAD_MEMBER
     shard.client.emit(
         "threadMemberUpdate",
         thread ?? {
-            id:      data.id,
+            id: data.id,
             guild,
             guildID: data.guild_id
         },
@@ -900,10 +823,10 @@ export async function THREAD_MEMBERS_UPDATE(data: DispatchEventMap["THREAD_MEMBE
     const thread = shard.client.getChannel<Types.Channels.AnyThreadChannel>(data.id);
     const guild = shard.client.guilds.get(data.guild_id);
     const addedMembers: Array<Types.Channels.ThreadMember> = (data.added_members ?? []).map(rawMember => ({
-        flags:         rawMember.flags,
-        id:            rawMember.id,
+        flags: rawMember.flags,
+        id: rawMember.id,
         joinTimestamp: new Date(rawMember.join_timestamp),
-        userID:        rawMember.user_id
+        userID: rawMember.user_id
     }));
     const removedMembers: Array<Types.Channels.ThreadMember | Types.Channels.UncachedThreadMember> = (data.removed_member_ids ?? []).map(id => ({ userID: id, id: data.id }));
     if (thread) {
@@ -927,7 +850,7 @@ export async function THREAD_MEMBERS_UPDATE(data: DispatchEventMap["THREAD_MEMBE
     shard.client.emit(
         "threadMembersUpdate",
         thread ?? {
-            id:      data.id,
+            id: data.id,
             guild,
             guildID: data.guild_id
         },
@@ -964,10 +887,8 @@ export async function VOICE_CHANNEL_EFFECT_SEND(data: DispatchEventMap["VOICE_CH
     const guild = shard.client.guilds.get(data.guild_id);
     const user = guild?.members.get(data.user_id) ?? shard.client.users.get(data.user_id);
     shard.client.emit("voiceChannelEffectSend", channel ?? { id: data.channel_id, guild: guild ?? { id: data.guild_id } }, user ?? { id: data.user_id }, {
-        animationID:   data.animation_id,
-        animationType: data.animation_type,
-        soundID:       data.sound_id,
-        soundVolume:   data.sound_volume
+        animationID: data.animation_id,
+        animationType: data.animation_type
     });
 }
 
@@ -986,7 +907,6 @@ export async function VOICE_STATE_UPDATE(data: DispatchEventMap["VOICE_STATE_UPD
 
     const oldState = guild?.voiceStates.get(member.id)?.toJSON() ?? null;
     const state = guild?.voiceStates.update({ ...data, id: member.id }) ?? new VoiceState(data, shard.client);
-    member["update"]({ deaf: state.deaf, mute: state.mute });
 
     if (oldState?.channelID !== state.channelID) {
         const oldChannel = oldState?.channelID ? shard.client.getChannel<VoiceChannel | StageChannel>(oldState.channelID) ?? { id: oldState.channelID } : null;
@@ -1012,24 +932,13 @@ export async function VOICE_STATE_UPDATE(data: DispatchEventMap["VOICE_STATE_UPD
     }
 }
 
-export async function VOICE_CHANNEL_START_TIME_UPDATE(data: DispatchEventMap["VOICE_CHANNEL_START_TIME_UPDATE"], shard: Shard): Promise<void> {
-    const guild = shard.client.guilds.get(data.guild_id);
-    const channel = shard.client.getChannel<Types.Channels.AnyVoiceChannel>(data.id);
-    if (channel) (channel as Base)["update"]({ voice_start_time: data.voice_start_time });
-    shard.client.emit("voiceChannelStartTimeUpdate", guild ?? { id: data.guild_id }, channel ?? { id: data.id }, data.voice_start_time ?? null);
-}
-
 export async function VOICE_CHANNEL_STATUS_UPDATE(data: DispatchEventMap["VOICE_CHANNEL_STATUS_UPDATE"], shard: Shard): Promise<void> {
-    const guild = shard.client.guilds.get(data.guild_id);
-    const channel = shard.client.getChannel<Types.Channels.AnyVoiceChannel>(data.id);
-    if (channel) (channel as Base)["update"]({ status: data.status });
-    shard.client.emit("voiceChannelStatusUpdate", guild ?? { id: data.guild_id }, channel ?? { id: data.id }, data.status);
+    shard.client.emit("voiceChannelStatusUpdate", shard.client.guilds.get(data.guild_id) ?? { id: data.guild_id }, shard.client.getChannel<VoiceChannel>(data.id) ?? { id: data.id }, data.status);
 }
 
 export async function VOICE_SERVER_UPDATE(data: DispatchEventMap["VOICE_SERVER_UPDATE"], shard: Shard): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
     shard.client.voiceAdapters.get(data.guild_id)?.onVoiceServerUpdate(data);
-    shard.client.emit("voiceServerUpdate", shard.client.guilds.get(data.guild_id) ?? { id: data.guild_id }, data.endpoint, data.token);
 }
 
 export async function WEBHOOKS_UPDATE(data: DispatchEventMap["WEBHOOKS_UPDATE"], shard: Shard): Promise<void> {

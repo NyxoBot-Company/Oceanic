@@ -1,6 +1,5 @@
 /** @module Role */
 import Base from "./Base";
-import Permission from "./Permission";
 import type Guild from "./Guild";
 import type * as Types from "../types/namespaced";
 import type Client from "../Client";
@@ -9,100 +8,54 @@ import { UncachedError } from "../util/Errors";
 /** Represents a role in a guild. */
 export default class Role extends Base {
     private _cachedGuild?: Guild;
-    /**
-     * The color of this role.
-     * @deprecated Use {@link Role#colors | Role#colors.primaryColor} instead.
-     */
+    /** The primary color of this role. */
     color: number;
-    /** The colors of this role. */
-    colors: Types.Guilds.RoleColors;
-    /** The {@link Constants~RoleFlags | flags } for this role. */
-    flags: number;
+    /** The secondary color of this role. */
+    secondaryColor: number;
     /** The id of the guild this role is in. */
     guildID: string;
-    /** If this role is hoisted. */
-    hoist: boolean;
     /** The icon has of this role. */
     icon: string | null;
     /** If this role is managed by an integration. */
     managed: boolean;
-    /** If this role can be mentioned by anybody. */
-    mentionable: boolean;
     /** The name of this role. */
     name: string;
-    /** The permissions of this role. */
-    permissions: Permission;
+    /** The allowed permissions for this role, as a bigint. */
+    permissionsAllow: bigint;
     /** The position of this role. */
     position: number;
-    /** The [tags](https://discord.com/developers/docs/topics/permissions#role-object-role-tags-structure) of this role. */
-    tags!: Types.Guilds.RoleTags;
-    /** The unicode emoji of this role. */
-    unicodeEmoji: string | null;
     constructor(data: Types.Guilds.RawRole, client: Client, guildID: string) {
         super(data.id, client);
         this.color = data.color;
-        this.colors = {
-            primaryColor:   data.colors.primary_color,
-            secondaryColor: data.colors.secondary_color,
-            tertiaryColor:  data.colors.tertiary_color
-        };
-        this.flags = data.flags;
+        this.secondaryColor = data.colors.secondary_color ?? 0;
         this.guildID = guildID;
-        this.hoist = !!data.hoist;
         this.icon = null;
         this.managed = !!data.managed;
-        this.mentionable = !!data.mentionable;
         this.name = data.name;
-        this.permissions = new Permission(data.permissions);
+        this.permissionsAllow = BigInt(data.permissions);
         this.position = data.position;
-        this.unicodeEmoji = null;
         this.update(data);
     }
 
     protected override update(data: Partial<Types.Guilds.RawRole>): void {
-        if (data.flags !== undefined) {
-            this.flags = data.flags;
-        }
         if (data.color !== undefined) {
             this.color = data.color;
         }
         if (data.colors !== undefined) {
-            this.colors = {
-                primaryColor:   data.colors.primary_color,
-                secondaryColor: data.colors.secondary_color,
-                tertiaryColor:  data.colors.tertiary_color
-            };
-        }
-        if (data.hoist !== undefined) {
-            this.hoist = data.hoist;
+            this.secondaryColor = data.colors.secondary_color ?? 0;
         }
         if (data.icon !== undefined) {
             this.icon = data.icon ?? null;
-        }
-        if (data.mentionable !== undefined) {
-            this.mentionable = data.mentionable;
         }
         if (data.name !== undefined) {
             this.name = data.name;
         }
         if (data.permissions !== undefined) {
-            this.permissions = new Permission(data.permissions);
+            this.permissionsAllow = BigInt(data.permissions);
         }
         if (data.position !== undefined) {
             this.position = data.position;
         }
-        if (data.unicode_emoji !== undefined) {
-            this.unicodeEmoji = data.unicode_emoji ?? null;
-        }
-
-        this.tags = {
-            availableForPurchase:  data.tags?.available_for_purchase === null,
-            guildConnections:      data.tags?.guild_connections === null,
-            botID:                 data.tags?.bot_id,
-            integrationID:         data.tags?.integration_id,
-            premiumSubscriber:     data.tags?.premium_subscriber === null,
-            subscriptionListingID: data.tags?.subscription_listing_id
-        };
     }
 
     /** The guild this role is in. This will throw an error if the guild is not cached. */
@@ -147,18 +100,15 @@ export default class Role extends Base {
     override toJSON(): Types.JSON.JSONRole {
         return {
             ...super.toJSON(),
-            color:        this.color,
-            colors:       this.colors,
-            guildID:      this.guildID,
-            hoist:        this.hoist,
-            icon:         this.icon,
-            managed:      this.managed,
-            mentionable:  this.mentionable,
-            name:         this.name,
-            permissions:  this.permissions.toJSON(),
-            position:     this.position,
-            tags:         this.tags,
-            unicodeEmoji: this.unicodeEmoji
-        };
+            color: this.color,
+            guildID: this.guildID,
+            icon: this.icon,
+            managed: this.managed,
+            name: this.name,
+            permissions: { allow: this.permissionsAllow.toString(), deny: "0" },
+            permissionsAllow: this.permissionsAllow.toString(),
+            position: this.position,
+            secondaryColor: this.secondaryColor
+        } as unknown as Types.JSON.JSONRole;
     }
 }

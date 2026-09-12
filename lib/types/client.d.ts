@@ -176,6 +176,12 @@ export interface CollectionLimitsOptions {
      */
     invites?: number | Record<string, number>;
     /**
+     * The maximum number of guild join requests to cache.
+     * @dictionaryKey guild id
+     * @defaultValue Infinity
+     */
+    joinRequests?: number | Record<string, number>;
+    /**
      * The maximum number of members to cache.
      *
      * Note: If you request members from the gateway, this will be increased (on the specific guild) as needed to accommodate those members.
