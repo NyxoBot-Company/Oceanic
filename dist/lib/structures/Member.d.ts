@@ -18,6 +18,8 @@ export default class Member extends Base {
     guildID: string;
     /** The date at which this member joined the guild. */
     joinedAt: Date | null;
+    /** The timestamp (`Date.now()`) at which this member was last created or updated in the cache. Not included in {@link Member#toJSON | toJSON}, as that would break the change detection of events that compare JSON. */
+    lastSeen: number;
     /** This member's nickname, if any. */
     nick: string | null;
     /** The roles this member has. */
