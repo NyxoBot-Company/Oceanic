@@ -74,9 +74,7 @@ export default class Guild extends Base {
     icon: string | null;
     incidentActions: Types.Guilds.IncidentActions | null;
     /** The integrations in this guild. */
-    integrations: TypedCollection<Types.Guilds.RawIntegration, Integration, [
-        guildID?: string
-    ]>;
+    integrations: TypedCollection<Types.Guilds.RawIntegration, Integration, [guildID?: string]>;
     /** The guild's inventory settings. */
     inventorySettings: Types.Guilds.InventorySettings | null;
     /** The cached invites in this guild. This will only be populated by invites created while the client is active. */
@@ -99,9 +97,7 @@ export default class Guild extends Base {
     /** The number of members in this guild. */
     memberCount: number;
     /** The cached members in this guild. */
-    members: TypedCollection<Types.Guilds.RawMember | Types.Guilds.RESTMember, Member, [
-        guildID: string
-    ]>;
+    members: TypedCollection<Types.Guilds.RawMember | Types.Guilds.RESTMember, Member, [guildID: string]>;
     /** The required [mfa level](https://discord.com/developers/docs/resources/guild#guild-object-mfa-level) for moderators of this guild. */
     mfaLevel: MFALevels;
     /** The name of this guild. */

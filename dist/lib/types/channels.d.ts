@@ -1671,9 +1671,9 @@ export interface IconEmoji {
 }
 
 export type ParentChannelType<CH extends GuildChannel> =
-    CH extends ThreadChannel | AnyThreadChannel ? ThreadParentChannel :
-        CH extends CategoryChannel ? null :
-            CategoryChannel;
+    CH extends ThreadChannels ? TextChannel | AnnouncementChannel | ForumChannel | MediaChannel :
+        CH extends Exclude<GuildChannels, ThreadChannels | ForumChannel | MediaChannel> ? CategoryChannel :
+            TextChannel | AnnouncementChannel | ForumChannel | MediaChannel | CategoryChannel;
 
 
 /* eslint-disable @typescript-eslint/member-ordering */
