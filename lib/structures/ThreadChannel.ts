@@ -11,316 +11,437 @@ import TypedCollection from "../util/TypedCollection";
 import { UncachedError } from "../util/Errors";
 
 /** Represents a guild thread channel. */
-export default class ThreadChannel<T extends Types.Channels.AnyThreadChannel = Types.Channels.AnyThreadChannel> extends GuildChannel {
-    /** The [flags](https://discord.com/developers/docs/resources/channel#channel-object-channel-flags) for this thread channel. */
-    override flags: number;
-    /** The ID of last message sent in this channel. */
-    lastMessageID: string | null;
-    /** The approximate number of members in this thread. Stops counting after 50. */
-    memberCount: number;
-    /** The members of this thread. */
-    members: Array<Types.Channels.ThreadMember>;
-    /** The number of messages (not including the initial message or deleted messages) in the thread. Stops counting after 50. */
-    messageCount: number;
-    private _messages?: TypedCollection<Types.Channels.RawMessage, Message<T>>;
-    /** The cached messages in this channel. Lazily allocated on first access. */
-    get messages(): TypedCollection<Types.Channels.RawMessage, Message<T>> {
-        if (!this._messages) {
-            this._messages = new TypedCollection(Message<T>, this.client, this.client.util._getLimit("messages", this.id));
-        }
-        return this._messages;
+export default class ThreadChannel<
+  CH extends Types.Channels.AnyThreadChannel = Types.Channels.AnyThreadChannel,
+> extends GuildChannel {
+  private _messages?: TypedCollection<Types.Channels.RawMessage, Message<CH>>;
+  /** The ID of last message sent in this channel. */
+  lastMessageID: string | null;
+  /** The approximate number of members in this thread. Stops counting after 50. */
+  memberCount: number;
+  /** The members of this thread. */
+  members: Array<Types.Channels.ThreadMember>;
+  /** The number of messages (not including the initial message or deleted messages) in the thread. Stops counting after 50. */
+  messageCount: number;
+  /** The owner of this thread. */
+  owner?: User;
+  /** The ID of the owner of this thread. */
+  ownerID: string;
+  declare parentID: string;
+  /** The amount of seconds between non-moderators sending messages. */
+  rateLimitPerUser: number;
+  /** The [thread metadata](https://discord.com/developers/docs/resources/channel#thread-metadata-object-thread-metadata-structure) associated with this thread. */
+  threadMetadata:
+    | Types.Channels.ThreadMetadata
+    | Types.Channels.PrivateThreadMetadata;
+  /** The total number of messages ever sent in the thread. Includes deleted messages. */
+  totalMessageSent: number;
+  declare type: Types.Channels.ThreadChannels;
+  constructor(data: Types.Channels.RawThreadChannel, client: Client) {
+    super(data, client);
+    this.flags = data.flags;
+    this.lastMessageID = data.last_message_id;
+    this.memberCount = 0;
+    this.members = [];
+    this.messageCount = 0;
+    this.ownerID = data.owner_id;
+    this.rateLimitPerUser = data.rate_limit_per_user;
+    this.threadMetadata = {
+      archiveTimestamp: new Date(data.thread_metadata.archive_timestamp),
+      archived: !!data.thread_metadata.archived,
+      autoArchiveDuration: data.thread_metadata.auto_archive_duration,
+      createTimestamp: data.thread_metadata.create_timestamp
+        ? new Date(data.thread_metadata.create_timestamp)
+        : null,
+      locked: !!data.thread_metadata.locked,
+      invitable: data.thread_metadata.invitable,
+    };
+    this.totalMessageSent = 0;
+    if (
+      data.type === ChannelTypes.PRIVATE_THREAD &&
+      data.thread_metadata.invitable !== undefined
+    ) {
+      (this.threadMetadata as Types.Channels.PrivateThreadMetadata).invitable =
+        !!data.thread_metadata.invitable;
     }
-    /** The owner of this thread. */
-    owner?: User;
-    /** The ID of the owner of this thread. */
-    ownerID: string;
-    declare parentID: string;
-    /** The amount of seconds between non-moderators sending messages. */
-    rateLimitPerUser: number;
-    /** The [thread metadata](https://discord.com/developers/docs/resources/channel#thread-metadata-object-thread-metadata-structure) associated with this thread. */
-    threadMetadata: Types.Channels.ThreadMetadata | Types.Channels.PrivateThreadMetadata;
-    /** The total number of messages ever sent in the thread. Includes deleted messages. */
-    totalMessageSent: number;
-    declare type: Types.Channels.ThreadChannels;
-    constructor(data: Types.Channels.RawThreadChannel, client: Client) {
-        super(data, client);
-        this.flags = data.flags;
-        this.lastMessageID = data.last_message_id;
-        this.memberCount = 0;
-        this.members = [];
-        this.messageCount = 0;
-        this.ownerID = data.owner_id;
-        this.rateLimitPerUser = data.rate_limit_per_user;
-        this.threadMetadata = {
-            archiveTimestamp: new Date(data.thread_metadata.archive_timestamp),
-            archived: !!data.thread_metadata.archived,
-            autoArchiveDuration: data.thread_metadata.auto_archive_duration,
-            createTimestamp: data.thread_metadata.create_timestamp ? new Date(data.thread_metadata.create_timestamp) : null,
-            locked: !!data.thread_metadata.locked,
-            invitable: data.thread_metadata.invitable
+    this.update(data);
+  }
+
+  protected override update(
+    data: Partial<Types.Channels.RawThreadChannel>,
+  ): void {
+    if (data.flags !== undefined) {
+      this.flags = data.flags;
+    }
+    if (data.last_message_id !== undefined) {
+      this.lastMessageID = data.last_message_id;
+    }
+    // @TODO look over this to see if we can make it "safer" (accessing Client#user)
+    if (data.member) {
+      const index = this.members.findIndex(
+        (m) => m.userID === this.client.user.id,
+      );
+      if (index === -1) {
+        this.members.push({
+          flags: data.member.flags,
+          id: this.id,
+          joinTimestamp: new Date(data.member.join_timestamp),
+          userID: this.client.user.id,
+        });
+      } else {
+        this.members[index] = {
+          ...this.members[index],
+          flags: data.member.flags,
+          joinTimestamp: new Date(data.member.join_timestamp),
         };
-        this.totalMessageSent = 0;
-        if (data.type === ChannelTypes.PRIVATE_THREAD && data.thread_metadata.invitable !== undefined) {
-            (this.threadMetadata as Types.Channels.PrivateThreadMetadata).invitable = !!data.thread_metadata.invitable;
-        }
-        this.update(data);
+      }
     }
-
-    protected override update(data: Partial<Types.Channels.RawThreadChannel>): void {
-        if (data.flags !== undefined) {
-            this.flags = data.flags;
-        }
-        if (data.last_message_id !== undefined) {
-            this.lastMessageID = data.last_message_id;
-        }
-        // @TODO look over this to see if we can make it "safer" (accessing Client#user)
-        if (data.member) {
-            const index = this.members.findIndex(m => m.userID === this.client.user.id);
-            if (index === -1) {
-                this.members.push({ flags: data.member.flags, id: this.id, joinTimestamp: new Date(data.member.join_timestamp), userID: this.client.user.id });
-            } else {
-                this.members[index] = {
-                    ...this.members[index],
-                    flags: data.member.flags,
-                    joinTimestamp: new Date(data.member.join_timestamp)
-                };
-            }
-
-        }
-        if (data.member_count !== undefined) {
-            this.memberCount = data.member_count;
-        }
-        if (data.message_count !== undefined) {
-            this.messageCount = data.message_count;
-        }
-        if (data.owner_id !== undefined) {
-            this.owner = this.client.users.get(data.owner_id);
-            this.ownerID = data.owner_id;
-        }
-        if (data.rate_limit_per_user !== undefined) {
-            this.rateLimitPerUser = data.rate_limit_per_user;
-        }
-        if (data.thread_metadata !== undefined) {
-            this.threadMetadata = {
-                archiveTimestamp: new Date(data.thread_metadata.archive_timestamp),
-                archived: !!data.thread_metadata.archived,
-                autoArchiveDuration: data.thread_metadata.auto_archive_duration,
-                createTimestamp: data.thread_metadata.create_timestamp ? new Date(data.thread_metadata.create_timestamp) : null,
-                locked: !!data.thread_metadata.locked,
-                invitable: data.thread_metadata.invitable
-            };
-            if (data.type === ChannelTypes.PRIVATE_THREAD && data.thread_metadata.invitable !== undefined) {
-                (this.threadMetadata as Types.Channels.PrivateThreadMetadata).invitable = !!data.thread_metadata.invitable;
-            }
-
-        }
-        if (data.total_message_sent !== undefined) {
-            this.totalMessageSent = data.total_message_sent;
-        }
+    if (data.member_count !== undefined) {
+      this.memberCount = data.member_count;
     }
-
-    override get parent(): Types.Channels.ParentChannelType<this> | undefined {
-        return super.parent as Types.Channels.ParentChannelType<this> | undefined;
+    if (data.message_count !== undefined) {
+      this.messageCount = data.message_count;
     }
-
-    /**
-     * Add a member to this thread.
-     * @param userID The ID of the user to add to the thread.
-     */
-    async addMember(userID: string): Promise<void> {
-        return this.client.rest.channels.addThreadMember(this.id, userID);
+    if (data.owner_id !== undefined) {
+      this.owner = this.client.users.get(data.owner_id);
+      this.ownerID = data.owner_id;
     }
-
-    /**
-     * Create a message in this thread.
-     * @param options The options for creating the message.
-     */
-    async createMessage(options: Types.Channels.CreateMessageOptions): Promise<Message<T>> {
-        return this.client.rest.channels.createMessage<T>(this.id, options);
+    if (data.rate_limit_per_user !== undefined) {
+      this.rateLimitPerUser = data.rate_limit_per_user;
     }
-
-    /**
-     * Add a reaction to a message in this thread.
-     * @param messageID The ID of the message to add a reaction to.
-     * @param emoji The reaction to add to the message. `name:id` for custom emojis, and the unicode codepoint for default emojis.
-     */
-    async createReaction(messageID: string, emoji: string): Promise<void> {
-        return this.client.rest.channels.createReaction(this.id, messageID, emoji);
+    if (data.thread_metadata !== undefined) {
+      this.threadMetadata = {
+        archiveTimestamp: new Date(data.thread_metadata.archive_timestamp),
+        archived: !!data.thread_metadata.archived,
+        autoArchiveDuration: data.thread_metadata.auto_archive_duration,
+        createTimestamp: data.thread_metadata.create_timestamp
+          ? new Date(data.thread_metadata.create_timestamp)
+          : null,
+        locked: !!data.thread_metadata.locked,
+        invitable: data.thread_metadata.invitable,
+      };
+      if (
+        data.type === ChannelTypes.PRIVATE_THREAD &&
+        data.thread_metadata.invitable !== undefined
+      ) {
+        (
+          this.threadMetadata as Types.Channels.PrivateThreadMetadata
+        ).invitable = !!data.thread_metadata.invitable;
+      }
     }
-
-    /**
-     * Delete a message in this thread.
-     * @param messageID The ID of the message to delete.
-     * @param reason The reason for deleting the message.
-     */
-    async deleteMessage(messageID: string, reason?: string): Promise<void> {
-        return this.client.rest.channels.deleteMessage(this.id, messageID, reason);
+    if (data.total_message_sent !== undefined) {
+      this.totalMessageSent = data.total_message_sent;
     }
+  }
 
-    /**
-     * Bulk delete messages in this thread.
-     * @param messageIDs The IDs of the messages to delete. Any duplicates or messages older than two weeks will cause an error.
-     * @param reason The reason for deleting the messages.
-     */
-    async deleteMessages(messageIDs: Array<string>, reason?: string): Promise<number> {
-        return this.client.rest.channels.deleteMessages(this.id, messageIDs, reason);
-    }
+  /** The cached messages in this channel. Lazily allocated on first access. */
+  get messages(): TypedCollection<Types.Channels.RawMessage, Message<CH>> {
+    this._messages ??= new TypedCollection(
+      Message<CH>,
+      this.client,
+      this.client.util._getLimit("messages", this.id),
+    );
+    return this._messages;
+  }
 
-    /**
-     * Remove a reaction from a message in this thread.
-     * @param messageID The ID of the message to remove a reaction from.
-     * @param emoji The reaction to remove from the message. `name:id` for custom emojis, and the unicode codepoint for default emojis.
-     * @param user The user to remove the reaction from, `@me` for the current user (default).
-     */
-    async deleteReaction(messageID: string, emoji: string, user = "@me"): Promise<void> {
-        return this.client.rest.channels.deleteReaction(this.id, messageID, emoji, user);
-    }
+  /**
+   * Add a member to this thread.
+   * @param userID The ID of the user to add to the thread.
+   */
+  async addMember(userID: string): Promise<void> {
+    return this.client.rest.channels.addThreadMember(this.id, userID);
+  }
 
-    /**
-     * Remove all, or a specific emoji's reactions from a message.
-     * @param messageID The ID of the message to remove reactions from.
-     * @param emoji The reaction to remove from the message. `name:id` for custom emojis, and the unicode codepoint for default emojis. Omit to remove all reactions.
-     */
-    async deleteReactions(messageID: string, emoji?: string): Promise<void> {
-        return this.client.rest.channels.deleteReactions(this.id, messageID, emoji);
-    }
+  /**
+   * Create a message in this thread.
+   * @param options The options for creating the message.
+   */
+  async createMessage(
+    options: Types.Channels.CreateMessageOptions,
+  ): Promise<Message<CH>>;
+  /**
+   * Create a message in this thread.
+   * @param content The content for creating the message
+   * @param options The options for creating the message.
+   */
+  async createMessage(
+    content: string,
+    options?: Types.Channels.CreateMessageOptions,
+  ): Promise<Message<CH>>;
+  async createMessage(
+    content: Types.Channels.CreateMessageOptions | string,
+    options?: Types.Channels.CreateMessageOptions,
+  ): Promise<Message<CH>> {
+    if (typeof content === "string") {
+      options = {
+        ...options,
+        content,
+      };
+    } else options = content;
+    return this.client.rest.channels.createMessage<CH>(this.id, options);
+  }
 
-    /**
-     * Edit a message in this thread.
-     * @param messageID The ID of the message to edit.
-     * @param options The options for editing the message.
-     */
-    async editMessage(messageID: string, options: Types.Channels.EditMessageOptions): Promise<Message<T>> {
-        return this.client.rest.channels.editMessage<T>(this.id, messageID, options);
-    }
+  /**
+   * Add a reaction to a message in this thread.
+   * @param messageID The ID of the message to add a reaction to.
+   * @param emoji The reaction to add to the message. `name:id` for custom emojis, and the unicode codepoint for default emojis.
+   */
+  async createReaction(messageID: string, emoji: string): Promise<void> {
+    return this.client.rest.channels.createReaction(this.id, messageID, emoji);
+  }
 
-    /**
-     * Get a thread member in this thread.
-     * @param userID The ID of the user to get the thread member of.
-     */
-    async getMember(userID: string): Promise<Types.Channels.ThreadMember> {
-        return this.client.rest.channels.getThreadMember(this.id, userID);
-    }
+  /**
+   * Delete a message in this thread.
+   * @param messageID The ID of the message to delete.
+   * @param reason The reason for deleting the message.
+   */
+  async deleteMessage(messageID: string, reason?: string): Promise<void> {
+    return this.client.rest.channels.deleteMessage(this.id, messageID, reason);
+  }
 
-    /**
-     * Get the members of this thread.
-     */
-    async getMembers(): Promise<Array<Types.Channels.ThreadMember>> {
-        return this.client.rest.channels.getThreadMembers(this.id);
-    }
+  /**
+   * Bulk delete messages in this thread.
+   * @param messageIDs The IDs of the messages to delete. Any duplicates or messages older than two weeks will cause an error.
+   * @param reason The reason for deleting the messages.
+   */
+  async deleteMessages(
+    messageIDs: Array<string>,
+    reason?: string,
+  ): Promise<number> {
+    return this.client.rest.channels.deleteMessages(
+      this.id,
+      messageIDs,
+      reason,
+    );
+  }
 
-    /**
-     * Get a message in this thread.
-     * @param messageID The ID of the message to get.
-     */
-    async getMessage(messageID: string): Promise<Message<T>> {
-        return this.client.rest.channels.getMessage<T>(this.id, messageID);
-    }
+  /**
+   * Remove a reaction from a message in this thread.
+   * @param messageID The ID of the message to remove a reaction from.
+   * @param emoji The reaction to remove from the message. `name:id` for custom emojis, and the unicode codepoint for default emojis.
+   * @param user The user to remove the reaction from, `@me` for the current user (default).
+   */
+  async deleteReaction(
+    messageID: string,
+    emoji: string,
+    user = "@me",
+  ): Promise<void> {
+    return this.client.rest.channels.deleteReaction(
+      this.id,
+      messageID,
+      emoji,
+      user,
+    );
+  }
 
-    /**
-     * Get messages in this thread.
-     * @param options The options for getting the messages. `before`, `after`, and `around `All are mutually exclusive.
-     */
-    async getMessages(options?: Types.Channels.GetChannelMessagesOptions): Promise<Array<Message<T>>> {
-        return this.client.rest.channels.getMessages<T>(this.id, options);
-    }
+  /**
+   * Remove all, or a specific emoji's reactions from a message.
+   * @param messageID The ID of the message to remove reactions from.
+   * @param emoji The reaction to remove from the message. `name:id` for custom emojis, and the unicode codepoint for default emojis. Omit to remove all reactions.
+   */
+  async deleteReactions(messageID: string, emoji?: string): Promise<void> {
+    return this.client.rest.channels.deleteReactions(this.id, messageID, emoji);
+  }
 
-    /**
-     * Get the pinned messages in this thread.
-     */
-    async getPinnedMessages(): Promise<Array<Message<T>>> {
-        return this.client.rest.channels.getPinnedMessages<T>(this.id);
-    }
+  /**
+   * Edit a message in this thread.
+   * @param messageID The ID of the message to edit.
+   * @param options The options for editing the message.
+   */
+  async editMessage(
+    messageID: string,
+    options: Types.Channels.EditMessageOptions,
+  ): Promise<Message<CH>>;
+  /**
+   * Edit a message in this thread.
+   * @param messageID The ID of the message to edit.
+   * @param content The content for editing the message.
+   * @param options The options for editing the message.
+   */
+  async editMessage(
+    messageID: string,
+    content: string,
+    options?: Types.Channels.EditMessageOptions,
+  ): Promise<Message<CH>>;
+  async editMessage(
+    messageID: string,
+    content: Types.Channels.EditMessageOptions | string,
+    options?: Types.Channels.EditMessageOptions,
+  ): Promise<Message<CH>> {
+    if (typeof content === "string") {
+      options = {
+        ...options,
+        content,
+      };
+    } else options = content;
+    return this.client.rest.channels.editMessage<CH>(
+      this.id,
+      messageID,
+      options,
+    );
+  }
 
-    /**
-     * Get the users who reacted with a specific emoji on a message.
-     * @param messageID The ID of the message to get reactions from.
-     * @param emoji The reaction to remove from the message. `name:id` for custom emojis, and the unicode codepoint for default emojis.
-     * @param options The options for getting the reactions.
-     */
-    async getReactions(messageID: string, emoji: string, options?: Types.Channels.GetReactionsOptions): Promise<Array<User>> {
-        return this.client.rest.channels.getReactions(this.id, messageID, emoji, options);
-    }
+  /**
+   * Get a thread member in this thread.
+   * @param userID The ID of the user to get the thread member of.
+   */
+  async getMember(userID: string): Promise<Types.Channels.ThreadMember> {
+    return this.client.rest.channels.getThreadMember(this.id, userID);
+  }
 
-    /**
-     * Join this thread.
-     */
-    async join(): Promise<void> {
-        return this.client.rest.channels.joinThread(this.id);
-    }
+  /**
+   * Get the members of this thread.
+   */
+  async getMembers(): Promise<Array<Types.Channels.ThreadMember>> {
+    return this.client.rest.channels.getThreadMembers(this.id);
+  }
 
-    /**
-     * Leave this thread.
-     */
-    async leave(): Promise<void> {
-        return this.client.rest.channels.leaveThread(this.id);
-    }
+  /**
+   * Get a message in this thread.
+   * @param messageID The ID of the message to get.
+   */
+  async getMessage(messageID: string): Promise<Message<CH>> {
+    return this.client.rest.channels.getMessage<CH>(this.id, messageID);
+  }
 
-    /**
-     * Get the permissions of a member. If providing an id, the member must be cached. The parent channel must be cached as threads themselves do not have permissions.
-     * @param member The member to get the permissions of.
-     */
-    permissionsOf(member: string | Member): Permission {
-        if (!this.parent) {
-            throw new UncachedError(`${this.constructor.name}#permisionsOf cannot be used if the parent channel is not cached.`);
-        }
-        return this.parent.permissionsOf(member);
-    }
+  /**
+   * Get messages in this thread.
+   * @param options The options for getting the messages. `before`, `after`, and `around `All are mutually exclusive.
+   */
+  async getMessages(
+    options?: Types.Channels.GetChannelMessagesOptions,
+  ): Promise<Array<Message<CH>>> {
+    return this.client.rest.channels.getMessages<CH>(this.id, options);
+  }
 
-    /**
-     * Pin a message in this thread.
-     * @param messageID The ID of the message to pin.
-     * @param reason The reason for pinning the message.
-     */
-    async pinMessage(messageID: string, reason?: string): Promise<void> {
-        return this.client.rest.channels.pinMessage(this.id, messageID, reason);
-    }
+  /**
+   * Get the pinned messages in this thread.
+   * @deprecated Use {@link ThreadChannel#getPins | getPins} instead.
+   */
+  async getPinnedMessages(): Promise<Array<Message<CH>>> {
+    return this.client.rest.channels.getPinnedMessages<CH>(this.id);
+  }
 
-    /**
-     * Purge an amount of messages from this channel.
-     * @param options The options to purge. `before`, `after`, and `around `All are mutually exclusive.
-     */
-    async purge(options: Types.Channels.PurgeOptions<T>): Promise<number> {
-        return this.client.rest.channels.purgeMessages(this.id, options);
-    }
+  /**
+   * Get the pins in this thread.
+   * @param options The options for getting pins.
+   */
+  async getPins(
+    options?: Types.Channels.GetChannelPinsOptions<CH>,
+  ): Promise<Array<Types.Channels.MessagePin<CH>>> {
+    return this.client.rest.channels.getPins<CH>(this.id, options);
+  }
 
-    /**
-     * Remove a member from this thread.
-     * @param userID The ID of the user to remove from the thread.
-     */
-    async removeMember(userID: string): Promise<void> {
-        return this.client.rest.channels.removeThreadMember(this.id, userID);
-    }
+  /**
+   * Get an async iterator for getting pins in this thread.
+   * @param options The options for getting pins.
+   */
+  getPinsIterator(
+    options?: Types.Channels.GetChannelPinsIteratorOptions<CH>,
+  ): Types.Channels.MessagePinsIterator<CH> {
+    return this.client.rest.channels.getPinsIterator<CH>(this.id, options);
+  }
 
-    /**
-     * Show a typing indicator in this thread.
-     */
-    async sendTyping(): Promise<void> {
-        return this.client.rest.channels.sendTyping(this.id);
-    }
+  /**
+   * Get the users who reacted with a specific emoji on a message.
+   * @param messageID The ID of the message to get reactions from.
+   * @param emoji The reaction to remove from the message. `name:id` for custom emojis, and the unicode codepoint for default emojis.
+   * @param options The options for getting the reactions.
+   */
+  async getReactions(
+    messageID: string,
+    emoji: string,
+    options?: Types.Channels.GetReactionsOptions,
+  ): Promise<Array<User>> {
+    return this.client.rest.channels.getReactions(
+      this.id,
+      messageID,
+      emoji,
+      options,
+    );
+  }
 
-    override toJSON(): Types.JSON.JSONThreadChannel {
-        return {
-            ...super.toJSON(),
-            flags: this.flags,
-            lastMessageID: this.lastMessageID,
-            memberCount: this.memberCount,
-            messageCount: this.messageCount,
-            messages: this._messages?.map(m => m.id) ?? [],
-            ownerID: this.ownerID,
-            rateLimitPerUser: this.rateLimitPerUser,
-            threadMetadata: this.threadMetadata,
-            totalMessageSent: this.totalMessageSent,
-            type: this.type
-        } as unknown as Types.JSON.JSONThreadChannel;
-    }
+  /**
+   * Join this thread.
+   */
+  async join(): Promise<void> {
+    return this.client.rest.channels.joinThread(this.id);
+  }
 
-    /**
-     * Unpin a message in this thread.
-     * @param messageID The ID of the message to unpin.
-     * @param reason The reason for unpinning the message.
-     */
-    async unpinMessage(messageID: string, reason?: string): Promise<void> {
-        return this.client.rest.channels.unpinMessage(this.id, messageID, reason);
+  /**
+   * Leave this thread.
+   */
+  async leave(): Promise<void> {
+    return this.client.rest.channels.leaveThread(this.id);
+  }
+
+  /**
+   * Get the permissions of a member. If providing an id, the member must be cached. The parent channel must be cached as threads themselves do not have permissions.
+   * @param member The member to get the permissions of.
+   */
+  permissionsOf(member: string | Member): Permission {
+    if (!this.parent) {
+      throw new UncachedError(
+        `${this.constructor.name}#permisionsOf cannot be used if the parent channel is not cached.`,
+      );
     }
+    return this.parent.permissionsOf(member);
+  }
+
+  /**
+   * Pin a message in this thread.
+   * @param messageID The ID of the message to pin.
+   * @param reason The reason for pinning the message.
+   */
+  async pinMessage(messageID: string, reason?: string): Promise<void> {
+    return this.client.rest.channels.pinMessage(this.id, messageID, reason);
+  }
+
+  /**
+   * Purge an amount of messages from this channel.
+   * @param options The options to purge. `before`, `after`, and `around `All are mutually exclusive.
+   */
+  async purge(options: Types.Channels.PurgeOptions<CH>): Promise<number> {
+    return this.client.rest.channels.purgeMessages(this.id, options);
+  }
+
+  /**
+   * Remove a member from this thread.
+   * @param userID The ID of the user to remove from the thread.
+   */
+  async removeMember(userID: string): Promise<void> {
+    return this.client.rest.channels.removeThreadMember(this.id, userID);
+  }
+
+  /**
+   * Show a typing indicator in this thread.
+   */
+  async sendTyping(): Promise<void> {
+    return this.client.rest.channels.sendTyping(this.id);
+  }
+
+  override toJSON(): Types.JSON.JSONThreadChannel {
+    return {
+      ...super.toJSON(),
+      flags: this.flags,
+      lastMessageID: this.lastMessageID,
+      memberCount: this.memberCount,
+      messageCount: this.messageCount,
+      messages: this._messages?.map((m) => m.id) ?? [],
+      ownerID: this.ownerID,
+      rateLimitPerUser: this.rateLimitPerUser,
+      threadMetadata: this.threadMetadata,
+      totalMessageSent: this.totalMessageSent,
+      type: this.type,
+    };
+  }
+
+  /**
+   * Unpin a message in this thread.
+   * @param messageID The ID of the message to unpin.
+   * @param reason The reason for unpinning the message.
+   */
+  async unpinMessage(messageID: string, reason?: string): Promise<void> {
+    return this.client.rest.channels.unpinMessage(this.id, messageID, reason);
+  }
 }
