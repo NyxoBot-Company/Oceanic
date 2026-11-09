@@ -1,4 +1,3 @@
-/** @module RequestHandler */
 import SequentialBucket from "./SequentialBucket";
 import type RESTManager from "./RESTManager";
 import type * as Types from "../types/namespaced";
